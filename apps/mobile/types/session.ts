@@ -1,0 +1,21 @@
+export type SessionRecord = {
+  activeAttendance: number;
+  attendeeOverflow: string;
+  attendeePreview: string[];
+  code: string;
+  crn: string;
+  cta: 'Join' | 'Select';
+  department: string;
+  description: string;
+  hint: string;
+  lecturer: string;
+  locationDetail: string;
+  locationLabel: string;
+  proximityText: string;
+  remainingMinutes: number;
+  room: string;
+  signalStrength: 'strong' | 'medium';
+  status: string;
+  time: string;
+  title: string;
+};
