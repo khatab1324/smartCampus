@@ -1,98 +1,310 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
+import { AppButton } from '@/components/app-button';
+import { AppTextField } from '@/components/app-text-field';
 import { ScreenShell } from '@/components/screen-shell';
 import { getSessionByCode } from '@/constants/session-catalog';
-import { tokens } from '@/constants/tokens';
+import { useAppTheme } from '@/hooks/use-app-theme';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  getLectureDiscoveryMode,
+  InstructorLecture,
+  joinLiveLectureWithPin,
+  subscribeLecture,
+} from '@/services/lecture-session.service';
+import { recordStudentSessionEntry } from '@/services/student-session-history.service';
+import { getDisplayNameFromEmail } from '@/utils/user';
 
 export default function SessionInformationScreen() {
-  const params = useLocalSearchParams<{ sessionCode?: string }>();
-  const session = getSessionByCode(params.sessionCode);
+  const { colors: themeColors } = useAppTheme();
+  const params = useLocalSearchParams<{ lectureId?: string; sessionCode?: string }>();
+  const { authUser, profile } = useAuth();
+  const [liveLecture, setLiveLecture] = useState<InstructorLecture | null>(null);
+  const [lectureLoaded, setLectureLoaded] = useState(false);
+  const [sessionPin, setSessionPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
+  const studentId = authUser?.uid ?? authUser?.email ?? 'local-student';
+  const studentName =
+    authUser?.displayName?.trim() ||
+    (authUser?.email ? getDisplayNameFromEmail(authUser.email) : 'Student');
+  const studentEmail = profile?.email ?? authUser?.email ?? null;
+  const catalogSession = getSessionByCode(params.sessionCode);
+  const session = useMemo(() => {
+    if (!liveLecture) {
+      return catalogSession;
+    }
+
+    const lecturer = liveLecture.instructorEmail
+      ? getDisplayNameFromEmail(liveLecture.instructorEmail)
+      : 'Instructor';
+    const isLive = liveLecture.status === 'live';
+    const isScheduled = liveLecture.status === 'scheduled';
+    const discoveryMode = getLectureDiscoveryMode(liveLecture);
+
+    return {
+      ...catalogSession,
+      activeAttendance: liveLecture.attendanceCount,
+      code: liveLecture.code,
+      crn: liveLecture.code,
+      cta: 'Join' as const,
+      department: 'Instructor live session',
+      hint: isLive
+        ? 'Attendance session is currently open'
+        : isScheduled
+          ? 'Attendance is not open yet'
+          : 'Attendance session has ended',
+      lecturer,
+      locationDetail:
+        discoveryMode === 'both'
+          ? `Found by nearby scan or search key ${liveLecture.discoveryKey ?? liveLecture.code}`
+          : discoveryMode === 'search-key'
+          ? `Found by search key ${liveLecture.discoveryKey ?? liveLecture.code}`
+          : 'Found by nearby classroom scan',
+      locationLabel:
+        discoveryMode === 'both'
+          ? 'Nearby and key session'
+          : discoveryMode === 'search-key'
+            ? 'Search key session'
+            : 'Nearby live session',
+      remainingMinutes: liveLecture.durationMinutes,
+      room: isLive ? 'Live' : isScheduled ? 'Scheduled' : 'Ended',
+      status: isLive ? 'Live Now' : isScheduled ? 'Scheduled' : 'Ended',
+      time: `${liveLecture.startTime} - ${liveLecture.endTime}`,
+      title: liveLecture.title,
+    };
+  }, [catalogSession, liveLecture]);
   const lecturerInitials = session.lecturer
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('');
+  const sessionIsScheduled = liveLecture?.status === 'scheduled';
+  const sessionIsEnded = liveLecture?.status === 'ended';
+  const sessionBadgeLabel = sessionIsScheduled
+    ? 'Scheduled'
+    : sessionIsEnded
+      ? 'Ended'
+      : 'Live Session';
+
+  useEffect(() => {
+    if (!params.lectureId) {
+      setLectureLoaded(true);
+      return;
+    }
+
+    setLectureLoaded(false);
+    const unsubscribe = subscribeLecture(
+      params.lectureId,
+      (lecture) => {
+        setLiveLecture(lecture);
+        setLectureLoaded(true);
+      },
+      () => {
+        setLiveLecture(null);
+        setLectureLoaded(true);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [params.lectureId]);
+
+  const studentHasEntered = Boolean(
+    liveLecture?.attendanceEvents.some((event) => event.id === studentId)
+  );
+  const requiresPin = Boolean(
+    params.lectureId &&
+      liveLecture?.status === 'live' &&
+      profile?.role !== 'instructor' &&
+      !studentHasEntered
+  );
+
+  async function handleJoinSession() {
+    if (!liveLecture || isJoining) {
+      return;
+    }
+
+    if (!/^\d{4}$/.test(sessionPin)) {
+      setPinError('Enter the 4 digit session PIN.');
+      return;
+    }
+
+    setIsJoining(true);
+    setPinError('');
+
+    try {
+      const joinedLecture = await joinLiveLectureWithPin(liveLecture.id, {
+        pin: sessionPin,
+        studentEmail,
+        studentId,
+        studentName,
+      });
+
+      await recordStudentSessionEntry(studentId, joinedLecture);
+      setLiveLecture(joinedLecture);
+      setSessionPin('');
+    } catch (error) {
+      setPinError(error instanceof Error ? error.message : 'Could not enter this session.');
+    } finally {
+      setIsJoining(false);
+    }
+  }
+
+  if (params.lectureId && !lectureLoaded) {
+    return (
+      <ScreenShell>
+        <View className="flex-1">
+          <SessionTopBar onBack={() => router.back()} />
+
+          <View className="flex-1 items-center justify-center gap-md p-xl">
+            <MaterialIcons color={themeColors.primary} name="sync" size={42} />
+            <Text className="text-title font-extrabold text-onSurface">Loading live session</Text>
+          </View>
+        </View>
+      </ScreenShell>
+    );
+  }
+
+  if (params.lectureId && lectureLoaded && !liveLecture) {
+    return (
+      <ScreenShell>
+        <View className="flex-1">
+          <SessionTopBar onBack={() => router.back()} />
+
+          <View className="flex-1 items-center justify-center gap-md p-xl">
+            <MaterialIcons color={themeColors.outlineVariant} name="event-busy" size={42} />
+            <Text className="text-title font-extrabold text-onSurface">Session not available</Text>
+          </View>
+        </View>
+      </ScreenShell>
+    );
+  }
+
+  if (requiresPin && liveLecture) {
+    return (
+      <PinGate
+        error={pinError}
+        isJoining={isJoining}
+        lecture={liveLecture}
+        onBack={() => router.back()}
+        onChangePin={(value) => {
+          setSessionPin(value.replace(/\D/g, '').slice(0, 4));
+          setPinError('');
+        }}
+        onJoin={handleJoinSession}
+        pin={sessionPin}
+      />
+    );
+  }
 
   return (
     <ScreenShell>
-      <View style={styles.container}>
-        <View style={styles.topBar}>
-          <View style={styles.topBarLeft}>
-            <Pressable
-              onPress={() => router.back()}
-              style={({ pressed }) => [styles.backButton, pressed && styles.buttonPressed]}>
-              <MaterialIcons color={tokens.colors.primary} name="arrow-back" size={22} />
-            </Pressable>
+      <View className="flex-1">
+        <SessionTopBar avatarText="AH" onBack={() => router.back()} />
 
-            <Text style={styles.topBarTitle}>Smart Attendance</Text>
-          </View>
-
-          <View style={styles.avatarShell}>
-            <Text style={styles.avatarText}>AH</Text>
-          </View>
-        </View>
-
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.hero}>
-            <View style={styles.heroTopRow}>
-              <View style={styles.liveSessionBadge}>
-                <View style={styles.liveSessionDot} />
-                <Text style={styles.liveSessionText}>Live Session</Text>
+        <ScrollView
+          contentContainerClassName="px-xl pb-[56px] pt-xl"
+          showsVerticalScrollIndicator={false}>
+          <View className="mb-xxxl">
+            <View className="mb-sm flex-row items-start justify-between">
+              <View
+                className={[
+                  'flex-row items-center gap-xs rounded-pill px-md py-[6px]',
+                  sessionIsScheduled
+                    ? 'bg-primaryFixed'
+                    : sessionIsEnded
+                      ? 'bg-surfaceHigh'
+                      : 'bg-tertiary/10',
+                ].join(' ')}>
+                <View
+                  className={[
+                    'h-2 w-2 rounded-pill',
+                    sessionIsScheduled
+                      ? 'bg-primary'
+                      : sessionIsEnded
+                        ? 'bg-onSurfaceVariant'
+                        : 'bg-tertiary',
+                  ].join(' ')}
+                />
+                <Text
+                  className={[
+                    'text-micro font-extrabold uppercase tracking-[1px]',
+                    sessionIsEnded ? 'text-onSurfaceVariant' : 'text-onPrimaryFixed',
+                  ].join(' ')}>
+                  {sessionBadgeLabel}
+                </Text>
               </View>
 
-              <Text style={styles.crnText}>CRN: {session.crn}</Text>
+              <Text className="text-body font-medium text-onSurfaceVariant">
+                CRN: {session.crn}
+              </Text>
             </View>
 
-            <Text style={styles.title}>{session.title}</Text>
-            <Text style={styles.description}>{session.description}</Text>
+            <Text className="mb-md text-display font-black leading-[48px] text-onSurface">
+              {session.title}
+            </Text>
           </View>
 
-          <View style={styles.statusGrid}>
-            <View style={styles.metricCard}>
-              <View style={styles.metricHeader}>
-                <MaterialIcons color={tokens.colors.primary} name="timer" size={22} />
-                <Text style={styles.metricLabel}>Time Remaining</Text>
+          <View className="mb-xxxl flex-row gap-lg">
+            <View className="flex-1 rounded-xl border border-primary/10 bg-primary/5 p-[20px]">
+              <View className="mb-sm flex-row items-center gap-sm">
+                <MaterialIcons color={themeColors.primary} name="timer" size={22} />
+                <Text className="text-micro font-extrabold uppercase tracking-[1px] text-primary">
+                  Time Remaining
+                </Text>
               </View>
-              <Text style={styles.metricValue}>
+              <Text className="text-[32px] font-black text-onSurface">
                 {session.remainingMinutes}
-                <Text style={styles.metricUnit}> min</Text>
+                <Text className="text-body font-bold text-onSurfaceVariant"> min</Text>
               </Text>
             </View>
 
-            <View style={styles.metricCardSecondary}>
-              <View style={styles.metricHeader}>
-                <MaterialIcons color={tokens.colors.secondary} name="group" size={22} />
-                <Text style={styles.metricLabelSecondary}>Attendance</Text>
+            <View className="flex-1 rounded-xl border border-secondary/10 bg-secondary/5 p-[20px]">
+              <View className="mb-sm flex-row items-center gap-sm">
+                <MaterialIcons color={themeColors.secondary} name="group" size={22} />
+                <Text className="text-micro font-extrabold uppercase tracking-[1px] text-secondary">
+                  Attendance
+                </Text>
               </View>
-              <Text style={styles.metricValue}>
+              <Text className="text-[32px] font-black text-onSurface">
                 {session.activeAttendance}
-                <Text style={styles.metricUnit}> active</Text>
+                <Text className="text-body font-bold text-onSurfaceVariant"> active</Text>
               </Text>
             </View>
           </View>
 
-          <View style={styles.infoStack}>
-            <View style={styles.instructorCard}>
-              <View style={styles.instructorAvatar}>
-                <Text style={styles.instructorInitials}>{lecturerInitials}</Text>
+          <View className="mb-xl gap-lg">
+            <View className="flex-row items-center gap-lg rounded-xl bg-surfaceLowest p-xl">
+              <View className="h-14 w-14 items-center justify-center rounded-pill bg-surfaceHigh">
+                <Text className="text-bodyLg font-extrabold tracking-[0.8px] text-primary">
+                  {lecturerInitials}
+                </Text>
               </View>
 
               <View>
-                <Text style={styles.instructorLabel}>Instructor</Text>
-                <Text style={styles.instructorName}>{session.lecturer}</Text>
-                <Text style={styles.instructorDept}>{session.department}</Text>
+                <Text className="mb-[3px] text-micro font-extrabold uppercase tracking-[1px] text-tertiary">
+                  Instructor
+                </Text>
+                <Text className="text-title font-extrabold leading-[22px] text-onSurface">
+                  {session.lecturer}
+                </Text>
+                <Text className="mt-[2px] text-body text-onSurfaceVariant">
+                  {session.department}
+                </Text>
               </View>
             </View>
 
-            <View style={styles.locationCard}>
+            <View className="gap-lg rounded-xl bg-surfaceLow p-xl">
               <InfoRow
                 icon="location-on"
                 label="Location"
                 title={session.locationLabel}
-                subtitle={session.locationDetail}
               />
 
               <InfoRow
@@ -103,10 +315,6 @@ export default function SessionInformationScreen() {
             </View>
           </View>
 
-          <View style={styles.tokenFooter}>
-            <MaterialIcons color={tokens.colors.onSurfaceVariant} name="verified-user" size={16} />
-            <Text style={styles.tokenFooterText}>Actively transmitting attendance tokens</Text>
-          </View>
         </ScrollView>
       </View>
     </ScreenShell>
@@ -116,285 +324,135 @@ export default function SessionInformationScreen() {
 function InfoRow({
   icon,
   label,
-  subtitle,
   title,
 }: {
   icon: keyof typeof MaterialIcons.glyphMap;
   label: string;
-  subtitle?: string;
   title: string;
 }) {
+  const { colors: themeColors } = useAppTheme();
+
   return (
-    <View style={styles.infoRow}>
-      <View style={styles.infoIconShell}>
-        <MaterialIcons color={tokens.colors.primary} name={icon} size={22} />
+    <View className="flex-row gap-md">
+      <View className="h-10 w-10 items-center justify-center rounded-[12px] bg-surfaceHigh">
+        <MaterialIcons color={themeColors.primary} name={icon} size={22} />
       </View>
 
-      <View style={styles.infoCopy}>
-        <Text style={styles.infoLabel}>{label}</Text>
-        <Text style={styles.infoTitle}>{title}</Text>
-        {subtitle ? <Text style={styles.infoSubtitle}>{subtitle}</Text> : null}
+      <View className="flex-1">
+        <Text className="mb-[3px] text-micro font-extrabold uppercase tracking-[1px] text-onSurfaceVariant">
+          {label}
+        </Text>
+        <Text className="text-bodyLg font-bold text-onSurface">{title}</Text>
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  topBar: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderBottomColor: tokens.effects.cardBorder,
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingBottom: tokens.spacing.md,
-    paddingHorizontal: tokens.spacing.xl,
-    paddingTop: tokens.spacing.lg,
-  },
-  topBarLeft: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: tokens.spacing.md,
-  },
-  backButton: {
-    alignItems: 'center',
-    borderRadius: tokens.radii.pill,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  topBarTitle: {
-    color: tokens.colors.primary,
-    fontSize: tokens.typography.title,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-  },
-  avatarShell: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.surfaceHigh,
-    borderColor: tokens.colors.surfaceLowest,
-    borderRadius: tokens.radii.pill,
-    borderWidth: 2,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  avatarText: {
-    color: tokens.colors.primary,
-    fontSize: tokens.typography.label,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  content: {
-    paddingBottom: 56,
-    paddingHorizontal: tokens.spacing.xl,
-    paddingTop: tokens.spacing.xl,
-  },
-  hero: {
-    marginBottom: tokens.spacing.xxxl,
-  },
-  heroTopRow: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: tokens.spacing.sm,
-  },
-  liveSessionBadge: {
-    alignItems: 'center',
-    backgroundColor: '#FFDBCC',
-    borderRadius: tokens.radii.pill,
-    flexDirection: 'row',
-    gap: tokens.spacing.xs,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  liveSessionDot: {
-    backgroundColor: tokens.colors.tertiary,
-    borderRadius: tokens.radii.pill,
-    height: 8,
-    width: 8,
-  },
-  liveSessionText: {
-    color: tokens.colors.onPrimaryFixed,
-    fontSize: tokens.typography.micro,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  crnText: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.body,
-    fontWeight: '500',
-  },
-  title: {
-    color: tokens.colors.onSurface,
-    fontSize: tokens.typography.display,
-    fontWeight: '900',
-    letterSpacing: -1.5,
-    lineHeight: 48,
-    marginBottom: tokens.spacing.md,
-  },
-  description: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.bodyLg,
-    lineHeight: 26,
-    maxWidth: '92%',
-  },
-  statusGrid: {
-    flexDirection: 'row',
-    gap: tokens.spacing.lg,
-    marginBottom: tokens.spacing.xxxl,
-  },
-  metricCard: {
-    backgroundColor: 'rgba(0,88,188,0.05)',
-    borderColor: 'rgba(0,88,188,0.1)',
-    borderRadius: tokens.radii.xl,
-    borderWidth: 1,
-    flex: 1,
-    padding: 20,
-  },
-  metricCardSecondary: {
-    backgroundColor: 'rgba(64,94,150,0.05)',
-    borderColor: 'rgba(64,94,150,0.1)',
-    borderRadius: tokens.radii.xl,
-    borderWidth: 1,
-    flex: 1,
-    padding: 20,
-  },
-  metricHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: tokens.spacing.sm,
-    marginBottom: tokens.spacing.sm,
-  },
-  metricLabel: {
-    color: tokens.colors.primary,
-    fontSize: tokens.typography.micro,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  metricLabelSecondary: {
-    color: tokens.colors.secondary,
-    fontSize: tokens.typography.micro,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  metricValue: {
-    color: tokens.colors.onSurface,
-    fontSize: 32,
-    fontWeight: '900',
-  },
-  metricUnit: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.body,
-    fontWeight: '700',
-  },
-  infoStack: {
-    gap: tokens.spacing.lg,
-    marginBottom: tokens.spacing.xl,
-  },
-  instructorCard: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.surfaceLowest,
-    borderRadius: tokens.radii.xl,
-    flexDirection: 'row',
-    gap: tokens.spacing.lg,
-    padding: tokens.spacing.xl,
-    ...tokens.shadows.card,
-  },
-  instructorAvatar: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.surfaceHigh,
-    borderRadius: tokens.radii.pill,
-    height: 56,
-    justifyContent: 'center',
-    width: 56,
-  },
-  instructorInitials: {
-    color: tokens.colors.primary,
-    fontSize: tokens.typography.bodyLg,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  instructorLabel: {
-    color: tokens.colors.tertiary,
-    fontSize: tokens.typography.micro,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: 3,
-    textTransform: 'uppercase',
-  },
-  instructorName: {
-    color: tokens.colors.onSurface,
-    fontSize: tokens.typography.title,
-    fontWeight: '800',
-    lineHeight: 22,
-  },
-  instructorDept: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.body,
-    marginTop: 2,
-  },
-  locationCard: {
-    backgroundColor: tokens.colors.surfaceLow,
-    borderRadius: tokens.radii.xl,
-    gap: tokens.spacing.lg,
-    padding: tokens.spacing.xl,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    gap: tokens.spacing.md,
-  },
-  infoIconShell: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.surfaceHigh,
-    borderRadius: 12,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  infoCopy: {
-    flex: 1,
-  },
-  infoLabel: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.micro,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: 3,
-    textTransform: 'uppercase',
-  },
-  infoTitle: {
-    color: tokens.colors.onSurface,
-    fontSize: tokens.typography.bodyLg,
-    fontWeight: '700',
-  },
-  infoSubtitle: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.label,
-    marginTop: 2,
-  },
-  tokenFooter: {
-    alignItems: 'center',
-    borderTopColor: 'rgba(193,198,215,0.3)',
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    gap: tokens.spacing.sm,
-    justifyContent: 'center',
-    paddingTop: tokens.spacing.lg,
-  },
-  tokenFooterText: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.label,
-    fontWeight: '600',
-  },
-  buttonPressed: {
-    opacity: 0.82,
-    transform: [{ scale: 0.99 }],
-  },
-});
+function SessionTopBar({
+  avatarText,
+  onBack,
+}: {
+  avatarText?: string;
+  onBack: () => void;
+}) {
+  const { colors: themeColors } = useAppTheme();
+
+  return (
+    <View className="flex-row items-center justify-between border-b border-outlineVariant/35 bg-surfaceLowest/90 px-xl pb-md pt-lg">
+      <View className="flex-row items-center gap-md">
+        <Pressable
+          onPress={onBack}
+          className="h-10 w-10 items-center justify-center rounded-pill active:scale-[0.99] active:opacity-85">
+          <MaterialIcons color={themeColors.primary} name="arrow-back" size={22} />
+        </Pressable>
+
+        <Text className="text-title font-extrabold text-primary">Smart Attendance</Text>
+      </View>
+
+      {avatarText ? (
+        <View className="h-10 w-10 items-center justify-center rounded-pill border-2 border-surfaceLowest bg-surfaceHigh">
+          <Text className="text-label font-extrabold tracking-[0.6px] text-primary">
+            {avatarText}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function PinGate({
+  error,
+  isJoining,
+  lecture,
+  onBack,
+  onChangePin,
+  onJoin,
+  pin,
+}: {
+  error: string;
+  isJoining: boolean;
+  lecture: InstructorLecture;
+  onBack: () => void;
+  onChangePin: (value: string) => void;
+  onJoin: () => void;
+  pin: string;
+}) {
+  const { colors: themeColors } = useAppTheme();
+
+  return (
+    <ScreenShell>
+      <View className="flex-1">
+        <SessionTopBar onBack={onBack} />
+
+        <ScrollView
+          contentContainerClassName="gap-xl px-xl pb-[56px] pt-xl"
+          showsVerticalScrollIndicator={false}>
+          <View className="gap-sm">
+            <View className="flex-row items-center gap-xs self-start rounded-pill bg-tertiary/10 px-md py-[6px]">
+              <View className="h-2 w-2 rounded-pill bg-tertiary" />
+              <Text className="text-micro font-extrabold uppercase tracking-[1px] text-tertiary">
+                PIN Required
+              </Text>
+            </View>
+
+            <Text className="mb-md text-display font-black leading-[48px] text-onSurface">
+              {lecture.title}
+            </Text>
+          </View>
+
+          <View className="gap-lg rounded-xl bg-surfaceLowest p-xl">
+            <AppTextField
+              keyboardType="number-pad"
+              label="Session PIN"
+              onChangeText={onChangePin}
+              placeholder="4 digit PIN"
+              rightAdornment={<MaterialIcons color={themeColors.outline} name="pin" size={20} />}
+              value={pin}
+            />
+
+            <View className="flex-row items-center gap-xs">
+              <MaterialIcons color={themeColors.onSurfaceVariant} name="schedule" size={16} />
+              <Text className="text-body font-bold text-onSurfaceVariant">
+                {lecture.startTime} - {lecture.endTime}
+              </Text>
+            </View>
+
+            {error ? (
+              <View className="flex-row items-center gap-sm rounded-md bg-error/10 px-md py-md">
+                <MaterialIcons color={themeColors.error} name="error-outline" size={18} />
+                <Text className="flex-1 text-body font-bold text-error">{error}</Text>
+              </View>
+            ) : null}
+
+            <AppButton
+              disabled={pin.length !== 4 || isJoining}
+              label={isJoining ? 'Entering...' : 'Enter Live Session'}
+              onPress={onJoin}
+              trailing={<MaterialIcons color={themeColors.onPrimary} name="login" size={20} />}
+            />
+          </View>
+        </ScrollView>
+      </View>
+    </ScreenShell>
+  );
+}

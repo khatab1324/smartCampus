@@ -2,14 +2,13 @@ import { ReactNode } from 'react';
 import {
   KeyboardTypeOptions,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   TextInputProps,
   View,
 } from 'react-native';
 
-import { tokens } from '@/constants/tokens';
+import { useAppTheme } from '@/hooks/use-app-theme';
 
 type AppTextFieldProps = {
   autoCapitalize?: TextInputProps['autoCapitalize'];
@@ -38,13 +37,17 @@ export function AppTextField({
   secureTextEntry,
   value,
 }: AppTextFieldProps) {
+  const { colors } = useAppTheme();
+
   return (
-    <View style={styles.wrapper}>
-      <View style={styles.labelRow}>
-        <Text style={styles.label}>{label}</Text>
+    <View className="gap-[6px]">
+      <View className="flex-row items-center justify-between">
+        <Text className="ml-xs text-label font-extrabold uppercase tracking-[0.8px] text-onSurfaceVariant">
+          {label}
+        </Text>
         {labelAccessory}
       </View>
-      <View style={styles.inputShell}>
+      <View className="min-h-[56px] flex-row items-center rounded-xl border border-outlineVariant/45 bg-surfaceLowest px-[18px]">
         <TextInput
           autoCapitalize={autoCapitalize}
           autoComplete={autoComplete}
@@ -52,9 +55,9 @@ export function AppTextField({
           keyboardType={keyboardType}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={tokens.colors.outline}
+          placeholderTextColor={colors.outline}
           secureTextEntry={secureTextEntry}
-          style={styles.input}
+          className="flex-1 py-lg text-bodyLg text-onSurface"
           value={value}
         />
         {rightAdornment}
@@ -72,49 +75,7 @@ export function InlineFieldLink({
 }) {
   return (
     <Pressable hitSlop={8} onPress={onPress}>
-      <Text style={styles.inlineLink}>{label}</Text>
+      <Text className="text-label font-extrabold text-primary">{label}</Text>
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  wrapper: {
-    gap: 6,
-  },
-  labelRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  label: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.label,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    marginLeft: 4,
-    textTransform: 'uppercase',
-  },
-  inlineLink: {
-    color: tokens.colors.primary,
-    fontSize: tokens.typography.label,
-    fontWeight: '800',
-    letterSpacing: -0.1,
-  },
-  inputShell: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.surfaceLowest,
-    borderColor: tokens.effects.fieldBorder,
-    borderRadius: tokens.radii.xl,
-    borderWidth: 1,
-    flexDirection: 'row',
-    minHeight: 56,
-    paddingHorizontal: 18,
-    ...tokens.shadows.soft,
-  },
-  input: {
-    color: tokens.colors.onSurface,
-    flex: 1,
-    fontSize: tokens.typography.bodyLg,
-    paddingVertical: 16,
-  },
-});

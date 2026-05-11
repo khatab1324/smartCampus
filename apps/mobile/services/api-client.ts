@@ -44,7 +44,7 @@ export async function apiRequest<T>(
     });
   } catch {
     throw new Error(
-      `Cannot reach the backend at ${baseUrl}. Start apps/api and set EXPO_PUBLIC_API_BASE_URL to your machine IP if you are testing on a phone.`
+      `broooo the server not linked cannot reach the backend at ${baseUrl}.`
     );
   }
 

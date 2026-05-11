@@ -1,21 +1,42 @@
 import { useMemo, useState } from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { AppButton } from '@/components/app-button';
 import { AppTextField } from '@/components/app-text-field';
 import { ScreenShell } from '@/components/screen-shell';
-import { weekDays } from '@/constants/instructor-mocks';
-import { tokens } from '@/constants/tokens';
+import { weekDays } from '@/constants/week-days';
+import { useAppTheme } from '@/hooks/use-app-theme';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  createInstructorLecture,
+  getCurrentClockTime,
+  getDurationLabel,
+  getLectureEndTime,
+  LectureDiscoveryMode,
+  LectureDurationMinutes,
+  LectureLaunchMode,
+  normalizeDiscoveryKey,
+} from '@/services/lecture-session.service';
+import { getCurrentDeviceLocation } from '@/services/device-location.service';
 import { openLiveAttendanceScreen } from '@/services/instructor-navigation.service';
-import { withAlpha } from '@/utils/color';
+
+const durationOptions: LectureDurationMinutes[] = [60, 90];
 
 export default function CreateLectureScreen() {
+  const { colors: themeColors } = useAppTheme();
+  const { authUser } = useAuth();
   const [lectureName, setLectureName] = useState('');
+  const [launchMode, setLaunchMode] = useState<LectureLaunchMode>('now');
+  const [discoveryMode, setDiscoveryMode] = useState<LectureDiscoveryMode>('nearby');
+  const [discoveryKey, setDiscoveryKey] = useState('');
   const [startTime, setStartTime] = useState('');
+  const [sessionPin, setSessionPin] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState<LectureDurationMinutes>(60);
   const [selectedDays, setSelectedDays] = useState<string[]>(['Sun', 'Tue', 'Thu']);
   const [modalVisible, setModalVisible] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const recurringLabel = useMemo(() => {
     if (!selectedDays.length) {
@@ -25,7 +46,23 @@ export default function CreateLectureScreen() {
     return selectedDays.join(' • ');
   }, [selectedDays]);
 
-  const canStartLecture = lectureName.trim().length > 0 && startTime.trim().length > 0;
+  const endTime = useMemo(() => {
+    if (launchMode === 'now') {
+      return getLectureEndTime(getCurrentClockTime(), durationMinutes);
+    }
+
+    return getLectureEndTime(startTime, durationMinutes);
+  }, [durationMinutes, launchMode, startTime]);
+  const hasValidStartTime = launchMode === 'now' || Boolean(endTime);
+  const normalizedDiscoveryKey = normalizeDiscoveryKey(discoveryKey);
+  const hasValidDiscovery =
+    discoveryMode === 'nearby' || normalizedDiscoveryKey.trim().length >= 3;
+  const canStartLecture =
+    lectureName.trim().length > 0 &&
+    /^\d{4}$/.test(sessionPin.trim()) &&
+    hasValidDiscovery &&
+    hasValidStartTime &&
+    !isSaving;
 
   function toggleDay(day: string) {
     setSelectedDays((current) =>
@@ -33,117 +70,260 @@ export default function CreateLectureScreen() {
     );
   }
 
-  function handleCreateLecture() {
+  async function handleCreateLecture() {
     if (!canStartLecture) {
       return;
     }
 
-    openLiveAttendanceScreen({
-      days: selectedDays,
-      lectureName: lectureName.trim(),
-      startTime: startTime.trim(),
-    });
+    setIsSaving(true);
+
+    try {
+      const location =
+        discoveryMode !== 'search-key' ? await getCurrentDeviceLocation() : null;
+
+      if (discoveryMode !== 'search-key' && !location) {
+        Alert.alert(
+          'Location unavailable',
+          'Allow location access or choose Search Key only so students can find this session.'
+        );
+        setIsSaving(false);
+        return;
+      }
+
+      const lecture = await createInstructorLecture({
+        days: selectedDays,
+        discoveryKey: normalizedDiscoveryKey,
+        discoveryMode,
+        durationMinutes,
+        instructorEmail: authUser?.email ?? null,
+        instructorId: authUser?.uid ?? authUser?.email ?? 'local-instructor',
+        launchMode,
+        location,
+        sessionPin: sessionPin.trim(),
+        startTime: launchMode === 'scheduled' ? startTime.trim() : undefined,
+        title: lectureName.trim(),
+      });
+
+      openLiveAttendanceScreen({ lectureId: lecture.id, mode: 'replace' });
+    } catch (error) {
+      Alert.alert(
+        'Could not create lecture',
+        error instanceof Error ? error.message : 'Check your Firebase connection and permissions.'
+      );
+      setIsSaving(false);
+    }
   }
 
   return (
     <ScreenShell>
-      <View style={styles.container}>
-        <View style={styles.topBar}>
-          <View style={styles.topBarLeft}>
+      <View className="flex-1">
+        <View className="flex-row items-center justify-between border-b border-outlineVariant/35 bg-surfaceLowest/90 px-xl pb-md pt-lg">
+          <View className="flex-row items-center gap-md">
             <Pressable
               onPress={() => router.back()}
-              style={({ pressed }) => [styles.iconButton, pressed && styles.buttonPressed]}>
-              <MaterialIcons color={tokens.colors.primary} name="arrow-back" size={22} />
+              className="h-10 w-10 items-center justify-center rounded-pill active:scale-[0.985] active:opacity-90">
+              <MaterialIcons color={themeColors.primary} name="arrow-back" size={22} />
             </Pressable>
 
-            <Text style={styles.topBarTitle}>Create Lecture</Text>
-          </View>
-
-          <View style={styles.topBarBadge}>
-            <Text style={styles.topBarBadgeText}>Step 1</Text>
+            <Text className="text-title font-extrabold text-primary">Create Lecture</Text>
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.hero}>
-            <View style={styles.heroBadge}>
-              <MaterialIcons color={tokens.colors.tertiary} name="auto-awesome" size={16} />
-              <Text style={styles.heroBadgeText}>Beautiful Create Lecture</Text>
-            </View>
-
-            <Text style={styles.heroTitle}>Prepare your next classroom session</Text>
-            <Text style={styles.heroSubtitle}>
-              Name the lecture, choose when it starts, and lock in the weekly recurrence before opening live attendance.
+        <ScrollView
+          contentContainerClassName="gap-xl px-xl pb-[56px] pt-xl"
+          showsVerticalScrollIndicator={false}>
+          <View className="gap-sm">
+            <Text className="text-display font-black leading-[42px] text-onSurface">
+              Prepare your next classroom session
             </Text>
           </View>
 
-          <View style={styles.formCard}>
+          <View className="gap-lg rounded-xl bg-surfaceLowest p-xl">
             <AppTextField
               label="Lecture Name"
               onChangeText={setLectureName}
               placeholder="Distributed Systems"
               rightAdornment={
-                <MaterialIcons color={tokens.colors.outline} name="menu-book" size={20} />
+                <MaterialIcons color={themeColors.outline} name="menu-book" size={20} />
               }
               value={lectureName}
             />
 
+            <View className="gap-sm">
+              <Text className="ml-xs text-label font-extrabold uppercase tracking-[0.8px] text-onSurfaceVariant">
+                Session Type
+              </Text>
+              <View className="gap-md">
+                <LaunchModeOption
+                  active={launchMode === 'now'}
+                  icon="play-circle"
+                  label="Start right now"
+                  onPress={() => setLaunchMode('now')}
+                />
+                <LaunchModeOption
+                  active={launchMode === 'scheduled'}
+                  icon="event"
+                  label="Scheduled lecture"
+                  onPress={() => setLaunchMode('scheduled')}
+                />
+              </View>
+            </View>
+
+            <View className="gap-sm">
+              <Text className="ml-xs text-label font-extrabold uppercase tracking-[0.8px] text-onSurfaceVariant">
+                Student Discovery
+              </Text>
+              <View className="gap-md">
+                <DiscoveryModeOption
+                  active={discoveryMode === 'nearby'}
+                  icon="location-on"
+                  label="Nearby location"
+                  onPress={() => setDiscoveryMode('nearby')}
+                />
+                <DiscoveryModeOption
+                  active={discoveryMode === 'search-key'}
+                  icon="key"
+                  label="Search key"
+                  onPress={() => setDiscoveryMode('search-key')}
+                />
+                <DiscoveryModeOption
+                  active={discoveryMode === 'both'}
+                  icon="travel-explore"
+                  label="Nearby + key"
+                  onPress={() => setDiscoveryMode('both')}
+                />
+              </View>
+            </View>
+
+            {discoveryMode !== 'nearby' ? (
+              <AppTextField
+                autoCapitalize="characters"
+                label="Search Key"
+                onChangeText={(value) => setDiscoveryKey(normalizeDiscoveryKey(value).slice(0, 12))}
+                placeholder="CS101"
+                rightAdornment={<MaterialIcons color={themeColors.outline} name="key" size={20} />}
+                value={discoveryKey}
+              />
+            ) : null}
+
+            {launchMode === 'scheduled' ? (
+              <AppTextField
+                label="Start Time"
+                onChangeText={setStartTime}
+                placeholder="09:00 AM"
+                rightAdornment={
+                  <MaterialIcons color={themeColors.outline} name="schedule" size={20} />
+                }
+                value={startTime}
+              />
+            ) : null}
+
             <AppTextField
-              label="Start Time"
-              onChangeText={setStartTime}
-              placeholder="09:00 AM"
+              keyboardType="number-pad"
+              label="Session PIN"
+              onChangeText={(value) => setSessionPin(value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="4 digit PIN"
               rightAdornment={
-                <MaterialIcons color={tokens.colors.outline} name="schedule" size={20} />
+                <MaterialIcons color={themeColors.outline} name="pin" size={20} />
               }
-              value={startTime}
+              value={sessionPin}
             />
+
+            <View className="gap-sm">
+              <Text className="ml-xs text-label font-extrabold uppercase tracking-[0.8px] text-onSurfaceVariant">
+                Lecture Duration
+              </Text>
+
+              <View className="gap-md">
+                {durationOptions.map((option) => {
+                  const active = durationMinutes === option;
+
+                  return (
+                    <Pressable
+                      key={option}
+                      onPress={() => setDurationMinutes(option)}
+                      className={[
+                        'min-h-[72px] flex-row items-center gap-sm rounded-xl border p-md active:scale-[0.985] active:opacity-90',
+                        active
+                          ? 'border-primary/25 bg-primarySoft'
+                          : 'border-transparent bg-surfaceLow',
+                      ].join(' ')}>
+                      <MaterialIcons
+                        color={active ? themeColors.primary : themeColors.outline}
+                        name={active ? 'check-box' : 'check-box-outline-blank'}
+                        size={22}
+                      />
+
+                      <View className="flex-1 gap-[2px]">
+                        <Text className="text-bodyLg font-extrabold text-onSurface">
+                          {getDurationLabel(option)}
+                        </Text>
+                        <Text className="text-body font-semibold text-onSurfaceVariant">
+                          {launchMode === 'now'
+                            ? `Ends around ${getLectureEndTime(getCurrentClockTime(), option)}`
+                            : getLectureEndTime(startTime, option)
+                              ? `Ends at ${getLectureEndTime(startTime, option)}`
+                              : 'Enter a valid start time'}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
 
             <Pressable
               onPress={() => setModalVisible(true)}
-              style={({ pressed }) => [styles.recurringCard, pressed && styles.buttonPressed]}>
-              <View style={styles.recurringCardMain}>
-                <View style={styles.recurringIconShell}>
-                  <MaterialIcons color={tokens.colors.secondary} name="event-repeat" size={22} />
+              className="flex-row items-center justify-between rounded-xl bg-surfaceLow p-lg active:scale-[0.985] active:opacity-90">
+              <View className="flex-1 flex-row items-center gap-md">
+                <View className="h-11 w-11 items-center justify-center rounded-md bg-secondary/10">
+                  <MaterialIcons color={themeColors.secondary} name="event-repeat" size={22} />
                 </View>
 
-                <View style={styles.recurringCopy}>
-                  <Text style={styles.recurringLabel}>Recurring Lecture</Text>
-                  <Text style={styles.recurringValue}>{recurringLabel}</Text>
+                <View className="flex-1 gap-xs">
+                  <Text className="text-label font-bold uppercase tracking-[1px] text-onSurfaceVariant">
+                    Recurring Lecture
+                  </Text>
+                  <Text className="text-body font-bold text-onSurface">{recurringLabel}</Text>
                 </View>
               </View>
 
-              <MaterialIcons color={tokens.colors.primary} name="chevron-right" size={20} />
+              <MaterialIcons color={themeColors.primary} name="chevron-right" size={20} />
             </Pressable>
 
-            <View style={styles.infoStrip}>
-              <MaterialIcons color={tokens.colors.secondary} name="info-outline" size={18} />
-              <Text style={styles.infoStripText}>
-                After saving, the instructor flow goes directly into the live attendance screen.
-              </Text>
-            </View>
           </View>
 
           <AppButton
             disabled={!canStartLecture}
-            label="Create Lecture & Go Live"
+            label={
+              isSaving
+                ? 'Creating Lecture...'
+                : launchMode === 'now'
+                  ? 'Start Live Session'
+                  : 'Schedule Lecture'
+            }
             onPress={handleCreateLecture}
             trailing={
-              <MaterialIcons color={tokens.colors.onPrimary} name="arrow-forward" size={20} />
+              <MaterialIcons color={themeColors.onPrimary} name="arrow-forward" size={20} />
             }
           />
         </ScrollView>
 
         <Modal animationType="slide" onRequestClose={() => setModalVisible(false)} transparent visible={modalVisible}>
-          <View style={styles.modalOverlay}>
-            <Pressable onPress={() => setModalVisible(false)} style={styles.modalBackdrop} />
+          <View className="flex-1 justify-end">
+            <Pressable
+              onPress={() => setModalVisible(false)}
+              className="absolute inset-0 bg-[rgba(8,12,25,0.38)]"
+            />
 
-            <View style={styles.modalSheet}>
-              <View style={styles.modalHandle} />
+            <View className="rounded-t-xl bg-surfaceLowest p-xl">
+              <View className="mb-xl h-[5px] w-[54px] self-center rounded-pill bg-outlineVariant" />
 
-              <Text style={styles.modalTitle}>Recurring Lecture</Text>
-              <Text style={styles.modalSubtitle}>Choose the days in the week for this lecture.</Text>
+              <Text className="mb-xs text-headline font-extrabold text-onSurface">
+                Recurring Lecture
+              </Text>
 
-              <View style={styles.dayGrid}>
+              <View className="mb-xl flex-row flex-wrap gap-md">
                 {weekDays.map((day) => {
                   const active = selectedDays.includes(day);
 
@@ -151,12 +331,17 @@ export default function CreateLectureScreen() {
                     <Pressable
                       key={day}
                       onPress={() => toggleDay(day)}
-                      style={({ pressed }) => [
-                        styles.dayChip,
-                        active && styles.dayChipActive,
-                        pressed && styles.buttonPressed,
-                      ]}>
-                      <Text style={[styles.dayChipText, active && styles.dayChipTextActive]}>{day}</Text>
+                      className={[
+                        'min-w-[78px] items-center rounded-pill px-lg py-[12px] active:scale-[0.985] active:opacity-90',
+                        active ? 'bg-primary' : 'bg-surfaceLow',
+                      ].join(' ')}>
+                      <Text
+                        className={[
+                          'text-body font-bold',
+                          active ? 'text-onPrimary' : 'text-onSurfaceVariant',
+                        ].join(' ')}>
+                        {day}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -171,211 +356,80 @@ export default function CreateLectureScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  buttonPressed: {
-    opacity: 0.92,
-    transform: [{ scale: 0.985 }],
-  },
-  container: {
-    flex: 1,
-  },
-  content: {
-    gap: tokens.spacing.xl,
-    paddingBottom: 56,
-    paddingHorizontal: tokens.spacing.xl,
-    paddingTop: tokens.spacing.xl,
-  },
-  dayChip: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.surfaceLow,
-    borderRadius: tokens.radii.pill,
-    minWidth: 78,
-    paddingHorizontal: tokens.spacing.lg,
-    paddingVertical: 12,
-  },
-  dayChipActive: {
-    backgroundColor: tokens.colors.primary,
-  },
-  dayChipText: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.body,
-    fontWeight: '700',
-  },
-  dayChipTextActive: {
-    color: tokens.colors.onPrimary,
-  },
-  dayGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: tokens.spacing.md,
-    marginBottom: tokens.spacing.xl,
-  },
-  formCard: {
-    backgroundColor: tokens.colors.surfaceLowest,
-    borderRadius: tokens.radii.xl,
-    gap: tokens.spacing.lg,
-    padding: tokens.spacing.xl,
-    ...tokens.shadows.card,
-  },
-  hero: {
-    gap: tokens.spacing.sm,
-  },
-  heroBadge: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: withAlpha(tokens.colors.tertiary, 0.12),
-    borderRadius: tokens.radii.pill,
-    flexDirection: 'row',
-    gap: tokens.spacing.xs,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  heroBadgeText: {
-    color: tokens.colors.onPrimaryFixed,
-    fontSize: tokens.typography.micro,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  heroSubtitle: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.bodyLg,
-    lineHeight: 25,
-    maxWidth: '92%',
-  },
-  heroTitle: {
-    color: tokens.colors.onSurface,
-    fontSize: tokens.typography.display,
-    fontWeight: '900',
-    letterSpacing: -1.4,
-    lineHeight: 42,
-  },
-  iconButton: {
-    alignItems: 'center',
-    borderRadius: tokens.radii.pill,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  infoStrip: {
-    alignItems: 'center',
-    backgroundColor: withAlpha(tokens.colors.secondary, 0.08),
-    borderRadius: tokens.radii.md,
-    flexDirection: 'row',
-    gap: tokens.spacing.sm,
-    paddingHorizontal: tokens.spacing.lg,
-    paddingVertical: tokens.spacing.md,
-  },
-  infoStripText: {
-    color: tokens.colors.onSurfaceVariant,
-    flex: 1,
-    fontSize: tokens.typography.body,
-    lineHeight: 21,
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(8, 12, 25, 0.38)',
-  },
-  modalHandle: {
-    alignSelf: 'center',
-    backgroundColor: tokens.colors.outlineVariant,
-    borderRadius: tokens.radii.pill,
-    height: 5,
-    marginBottom: tokens.spacing.xl,
-    width: 54,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: tokens.colors.surfaceLowest,
-    borderTopLeftRadius: tokens.radii.xl,
-    borderTopRightRadius: tokens.radii.xl,
-    padding: tokens.spacing.xl,
-  },
-  modalSubtitle: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.body,
-    lineHeight: 22,
-    marginBottom: tokens.spacing.xl,
-  },
-  modalTitle: {
-    color: tokens.colors.onSurface,
-    fontSize: tokens.typography.headline,
-    fontWeight: '800',
-    marginBottom: tokens.spacing.xs,
-  },
-  recurringCard: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.surfaceLow,
-    borderRadius: tokens.radii.xl,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: tokens.spacing.lg,
-  },
-  recurringCardMain: {
-    alignItems: 'center',
-    flex: 1,
-    flexDirection: 'row',
-    gap: tokens.spacing.md,
-  },
-  recurringCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  recurringIconShell: {
-    alignItems: 'center',
-    backgroundColor: withAlpha(tokens.colors.secondary, 0.12),
-    borderRadius: tokens.radii.md,
-    height: 44,
-    justifyContent: 'center',
-    width: 44,
-  },
-  recurringLabel: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.label,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  recurringValue: {
-    color: tokens.colors.onSurface,
-    fontSize: tokens.typography.body,
-    fontWeight: '700',
-  },
-  topBar: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderBottomColor: tokens.effects.cardBorder,
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingBottom: tokens.spacing.md,
-    paddingHorizontal: tokens.spacing.xl,
-    paddingTop: tokens.spacing.lg,
-  },
-  topBarBadge: {
-    backgroundColor: tokens.colors.primaryFixed,
-    borderRadius: tokens.radii.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  topBarBadgeText: {
-    color: tokens.colors.onPrimaryFixed,
-    fontSize: tokens.typography.micro,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  topBarLeft: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: tokens.spacing.md,
-  },
-  topBarTitle: {
-    color: tokens.colors.primary,
-    fontSize: tokens.typography.title,
-    fontWeight: '800',
-  },
-});
+function LaunchModeOption({
+  active,
+  icon,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  icon: keyof typeof MaterialIcons.glyphMap;
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors: themeColors } = useAppTheme();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      className={[
+        'flex-row items-center gap-sm rounded-xl border p-md active:scale-[0.985] active:opacity-90',
+        active ? 'border-primary/25 bg-primarySoft' : 'border-transparent bg-surfaceLow',
+      ].join(' ')}>
+      <MaterialIcons
+        color={active ? themeColors.primary : themeColors.outline}
+        name={icon}
+        size={24}
+      />
+
+      <View className="flex-1 gap-[3px]">
+        <Text className="text-body font-black text-onSurface">{label}</Text>
+      </View>
+
+      <MaterialIcons
+        color={active ? themeColors.primary : themeColors.outlineVariant}
+        name={active ? 'radio-button-checked' : 'radio-button-unchecked'}
+        size={22}
+      />
+    </Pressable>
+  );
+}
+
+function DiscoveryModeOption({
+  active,
+  icon,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  icon: keyof typeof MaterialIcons.glyphMap;
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors: themeColors } = useAppTheme();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      className={[
+        'flex-row items-center gap-sm rounded-xl border p-md active:scale-[0.985] active:opacity-90',
+        active ? 'border-primary/25 bg-primarySoft' : 'border-transparent bg-surfaceLow',
+      ].join(' ')}>
+      <MaterialIcons
+        color={active ? themeColors.primary : themeColors.outline}
+        name={icon}
+        size={24}
+      />
+
+      <View className="flex-1 gap-[3px]">
+        <Text className="text-body font-black text-onSurface">{label}</Text>
+      </View>
+
+      <MaterialIcons
+        color={active ? themeColors.primary : themeColors.outlineVariant}
+        name={active ? 'radio-button-checked' : 'radio-button-unchecked'}
+        size={22}
+      />
+    </Pressable>
+  );
+}

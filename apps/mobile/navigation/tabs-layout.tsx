@@ -2,18 +2,21 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 
 import { tokens } from '@/constants/tokens';
+import { useAppTheme } from '@/hooks/use-app-theme';
 
 export default function TabsLayout() {
+  const { chrome, colors } = useAppTheme();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         sceneStyle: {
-          backgroundColor: tokens.colors.background,
+          backgroundColor: colors.background,
         },
-        tabBarActiveBackgroundColor: tokens.colors.primarySoft,
-        tabBarActiveTintColor: tokens.colors.primary,
-        tabBarInactiveTintColor: tokens.colors.outline,
+        tabBarActiveBackgroundColor: colors.primarySoft,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.outline,
         tabBarItemStyle: {
           borderRadius: 18,
           marginHorizontal: 6,
@@ -25,13 +28,13 @@ export default function TabsLayout() {
           textTransform: 'uppercase',
         },
         tabBarStyle: {
-          backgroundColor: tokens.chrome.bottomBar,
+          backgroundColor: chrome.bottomBar,
           borderTopWidth: 0,
           elevation: 0,
           height: 84,
           paddingBottom: 14,
           paddingTop: 10,
-          shadowColor: tokens.colors.onSurface,
+          shadowColor: colors.onSurface,
           shadowOffset: { width: 0, height: -8 },
           shadowOpacity: 0.05,
           shadowRadius: 24,

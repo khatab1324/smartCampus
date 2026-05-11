@@ -16,3 +16,10 @@ export function openSessionInformationScreen(sessionCode: string) {
     pathname: routes.sessionInformation,
   });
 }
+
+export function openLectureSessionInformationScreen(lectureId: string) {
+  router.push({
+    params: { lectureId },
+    pathname: routes.sessionInformation,
+  });
+}

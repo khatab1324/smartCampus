@@ -3,9 +3,11 @@ import { router } from 'expo-router';
 import { routes } from '@/navigation/routes';
 
 type OpenLiveAttendanceInput = {
-  days: string[];
-  lectureName: string;
-  startTime: string;
+  days?: string[];
+  lectureId?: string;
+  lectureName?: string;
+  mode?: 'push' | 'replace';
+  startTime?: string;
 };
 
 export function openCreateLectureScreen() {
@@ -17,12 +19,20 @@ export function openInstructorDashboard() {
 }
 
 export function openLiveAttendanceScreen(input: OpenLiveAttendanceInput) {
-  router.replace({
+  const route = {
     params: {
-      days: input.days.join(','),
+      days: input.days?.join(','),
+      lectureId: input.lectureId,
       lectureName: input.lectureName,
       startTime: input.startTime,
     },
     pathname: routes.liveAttendance,
-  });
+  } as const;
+
+  if (input.mode === 'replace') {
+    router.replace(route);
+    return;
+  }
+
+  router.push(route);
 }

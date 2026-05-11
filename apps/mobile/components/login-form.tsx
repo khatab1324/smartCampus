@@ -1,23 +1,21 @@
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
-import { tokens } from '@/constants/tokens';
+import { useAppTheme } from '@/hooks/use-app-theme';
 import { useLoginForm } from '@/hooks/use-login-form';
 import { goToRegister } from '@/services/auth-navigation.service';
 
 import { AppButton } from './app-button';
 import { AppTextField, InlineFieldLink } from './app-text-field';
-import { RoleSwitch } from './role-switch';
 
 export function LoginForm() {
-  const { email, error, handleSubmit, isSubmitting, password, role, setEmail, setPassword, setRole } =
+  const { colors } = useAppTheme();
+  const { email, error, handleSubmit, isSubmitting, password, setEmail, setPassword } =
     useLoginForm();
 
   return (
-    <View style={styles.container}>
-      <RoleSwitch onChange={setRole} value={role} />
-
-      <View style={styles.formFields}>
+    <View className="gap-xl">
+      <View className="gap-md">
         <AppTextField
           autoCapitalize="none"
           autoComplete="email"
@@ -27,7 +25,7 @@ export function LoginForm() {
           onChangeText={setEmail}
           placeholder="name@campus.edu"
           rightAdornment={
-            <MaterialIcons color={tokens.colors.outline} name="alternate-email" size={20} />
+            <MaterialIcons color={colors.outline} name="alternate-email" size={20} />
           }
           value={email}
         />
@@ -39,7 +37,7 @@ export function LoginForm() {
           onChangeText={setPassword}
           placeholder="••••••••"
           rightAdornment={
-            <MaterialIcons color={tokens.colors.outline} name="lock-outline" size={20} />
+            <MaterialIcons color={colors.outline} name="lock-outline" size={20} />
           }
           secureTextEntry
           value={password}
@@ -50,17 +48,23 @@ export function LoginForm() {
           label={isSubmitting ? 'Signing In...' : 'Login'}
           onPress={handleSubmit}
           trailing={
-            <MaterialIcons color={tokens.colors.onPrimary} name="arrow-forward" size={20} />
+            <MaterialIcons color={colors.onPrimary} name="arrow-forward" size={20} />
           }
         />
       </View>
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {error ? (
+        <Text className="text-center text-body font-semibold leading-[21px] text-error">
+          {error}
+        </Text>
+      ) : null}
 
-      <View style={styles.dividerRow}>
-        <View style={styles.divider} />
-        <Text style={styles.dividerText}>or continue with</Text>
-        <View style={styles.divider} />
+      <View className="flex-row items-center gap-lg">
+        <View className="h-px flex-1 bg-outlineVariant" />
+        <Text className="text-micro font-extrabold uppercase tracking-[1.2px] text-outline">
+          or continue with
+        </Text>
+        <View className="h-px flex-1 bg-outlineVariant" />
       </View>
 
       <AppButton
@@ -68,7 +72,7 @@ export function LoginForm() {
         label="Continue with Google"
         leading={
           <MaterialCommunityIcons
-            color={tokens.colors.onPrimaryFixed}
+            color={colors.onPrimaryFixed}
             name="google"
             size={20}
           />
@@ -77,55 +81,12 @@ export function LoginForm() {
         variant="secondary"
       />
 
-      <Text style={styles.helperText}>
+      <Text className="text-center text-body font-medium text-onSurfaceVariant">
         New to campus?{' '}
-        <Text onPress={goToRegister} style={styles.helperLink}>
+        <Text onPress={goToRegister} className="font-extrabold text-primary">
           Register your ID
         </Text>
       </Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    gap: tokens.spacing.xl,
-  },
-  formFields: {
-    gap: tokens.spacing.md,
-  },
-  dividerRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: tokens.spacing.lg,
-  },
-  divider: {
-    backgroundColor: tokens.effects.divider,
-    flex: 1,
-    height: 1,
-  },
-  dividerText: {
-    color: tokens.colors.outline,
-    fontSize: tokens.typography.micro,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-  },
-  helperText: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.body,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  errorText: {
-    color: tokens.colors.error,
-    fontSize: tokens.typography.body,
-    fontWeight: '600',
-    lineHeight: 21,
-    textAlign: 'center',
-  },
-  helperLink: {
-    color: tokens.colors.primary,
-    fontWeight: '800',
-  },
-});

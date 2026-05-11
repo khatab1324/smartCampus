@@ -2,7 +2,7 @@ import { DefaultTheme } from '@react-navigation/native';
 
 import { withAlpha } from '@/utils/color';
 
-const colors = {
+export const lightColors = {
   background: '#F9F9FF',
   primary: '#0058BC',
   primaryContainer: '#0070EB',
@@ -26,6 +26,37 @@ const colors = {
   outline: '#717786',
   outlineVariant: '#C1C6D7',
 };
+
+export const darkColors: typeof lightColors = {
+  background: '#0B1018',
+  primary: '#9CC2FF',
+  primaryContainer: '#2F6FD6',
+  primaryFixed: '#17365F',
+  primarySoft: '#10243F',
+  secondary: '#B6C8F4',
+  tertiary: '#FFB690',
+  error: '#FFB4AB',
+  success: '#9CD69F',
+  successSoft: '#16361D',
+  dangerSoft: '#3A1715',
+  surface: '#0B1018',
+  surfaceLow: '#121A26',
+  surfaceLowest: '#172130',
+  surfaceHigh: '#222D3D',
+  surfaceHighest: '#2D394A',
+  onSurface: '#EEF2FA',
+  onSurfaceVariant: '#BFC7D6',
+  onPrimary: '#062449',
+  onPrimaryFixed: '#D8E2FF',
+  outline: '#929BAD',
+  outlineVariant: '#404B5D',
+};
+
+const colors = lightColors;
+
+export type AppColorTokens = typeof lightColors;
+export type AppColorScheme = 'light' | 'dark';
+export type AppThemePreference = AppColorScheme | 'system';
 
 export const tokens = {
   colors,
@@ -90,15 +121,63 @@ export const tokens = {
   },
 };
 
-export const navigationTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    background: colors.background,
-    border: colors.outlineVariant,
-    card: colors.surfaceLowest,
-    notification: colors.tertiary,
-    primary: colors.primary,
-    text: colors.onSurface,
-  },
-};
+export function getNavigationTheme(themeColors: AppColorTokens = colors) {
+  return {
+    ...DefaultTheme,
+    colors: {
+      ...DefaultTheme.colors,
+      background: themeColors.background,
+      border: themeColors.outlineVariant,
+      card: themeColors.surfaceLowest,
+      notification: themeColors.tertiary,
+      primary: themeColors.primary,
+      text: themeColors.onSurface,
+    },
+    dark: themeColors === darkColors,
+  };
+}
+
+export const navigationTheme = getNavigationTheme(colors);
+
+export function getThemeColors(colorScheme: AppColorScheme) {
+  return colorScheme === 'dark' ? darkColors : lightColors;
+}
+
+export function getThemeChrome(themeColors: AppColorTokens) {
+  return {
+    bottomBar: withAlpha(themeColors.surfaceLowest, 0.96),
+    footerPill: withAlpha(themeColors.surfaceHigh, 0.8),
+  };
+}
+
+export function getThemeEffects(themeColors: AppColorTokens) {
+  return {
+    primaryGlow: withAlpha(themeColors.primaryContainer, 0.55),
+    topGlow: withAlpha(themeColors.primaryContainer, 0.08),
+    bottomGlow: withAlpha(themeColors.tertiary, 0.07),
+    divider: withAlpha(themeColors.outlineVariant, 0.5),
+    fieldBorder: withAlpha(themeColors.outlineVariant, 0.45),
+    cardBorder: withAlpha(themeColors.outlineVariant, 0.15),
+  };
+}
+
+export function getThemeNativeWindVariables(themeColors: AppColorTokens) {
+  return Object.fromEntries(
+    Object.entries(themeColors).map(([name, value]) => [`color-${name}`, hexToRgbChannels(value)])
+  );
+}
+
+function hexToRgbChannels(hex: string) {
+  const normalized = hex.replace('#', '');
+
+  if (normalized.length !== 6) {
+    return '0 0 0';
+  }
+
+  const value = Number.parseInt(normalized, 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+
+  return `${red} ${green} ${blue}`;
+}

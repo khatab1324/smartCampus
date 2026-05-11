@@ -8,4 +8,4 @@ dist
 .expo
 apps/api/*-firebase-adminsdk-*.json
 skill.md
-./streering.md
+private

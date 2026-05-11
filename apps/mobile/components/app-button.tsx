@@ -1,7 +1,5 @@
 import { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-
-import { tokens } from '@/constants/tokens';
+import { Pressable, Text, View } from 'react-native';
 
 type AppButtonProps = {
   disabled?: boolean;
@@ -21,68 +19,31 @@ export function AppButton({
   trailing,
 }: AppButtonProps) {
   const isPrimary = variant === 'primary';
+  const buttonClassName = [
+    'relative min-h-[56px] flex-row items-center justify-center gap-sm overflow-hidden rounded-xl px-xl',
+    isPrimary ? 'bg-primary' : 'bg-primaryFixed',
+    disabled && 'opacity-55',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <Pressable
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.base,
-        isPrimary ? styles.primary : styles.secondary,
-        disabled ? styles.disabled : pressed && styles.pressed,
-      ]}>
-      {isPrimary ? <View style={styles.primaryGlow} /> : null}
+      className={buttonClassName}>
+      {isPrimary ? (
+        <View className="absolute -right-[38px] -top-[58px] h-[160px] w-[160px] rounded-pill bg-primaryContainer opacity-55" />
+      ) : null}
       {leading}
-      <Text style={[styles.label, isPrimary ? styles.primaryLabel : styles.secondaryLabel]}>
+      <Text
+        className={[
+          'text-bodyLg font-extrabold',
+          isPrimary ? 'text-onPrimary' : 'text-onPrimaryFixed',
+        ].join(' ')}>
         {label}
       </Text>
       {trailing}
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  base: {
-    alignItems: 'center',
-    borderRadius: tokens.radii.xl,
-    flexDirection: 'row',
-    gap: tokens.spacing.sm,
-    justifyContent: 'center',
-    minHeight: 56,
-    overflow: 'hidden',
-    paddingHorizontal: tokens.spacing.xl,
-  },
-  primary: {
-    backgroundColor: tokens.colors.primary,
-    ...tokens.shadows.floating,
-  },
-  secondary: {
-    backgroundColor: tokens.colors.primaryFixed,
-  },
-  pressed: {
-    opacity: 0.92,
-    transform: [{ scale: 0.985 }],
-  },
-  disabled: {
-    opacity: 0.55,
-  },
-  primaryGlow: {
-    backgroundColor: tokens.effects.primaryGlow,
-    borderRadius: 160,
-    height: 160,
-    position: 'absolute',
-    right: -38,
-    top: -58,
-    width: 160,
-  },
-  label: {
-    fontSize: tokens.typography.bodyLg,
-    fontWeight: '800',
-  },
-  primaryLabel: {
-    color: tokens.colors.onPrimary,
-  },
-  secondaryLabel: {
-    color: tokens.colors.onPrimaryFixed,
-  },
-});

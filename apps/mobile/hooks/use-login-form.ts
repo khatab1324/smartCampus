@@ -3,11 +3,8 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { enterCampus } from '@/services/auth-navigation.service';
 
-import { AuthRole } from '@/types/auth';
-
 export function useLoginForm() {
   const { signIn } = useAuth();
-  const [role, setRole] = useState<AuthRole>('student');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -41,9 +38,7 @@ export function useLoginForm() {
     handleSubmit,
     isSubmitting,
     password,
-    role,
     setEmail,
     setPassword,
-    setRole,
   };
 }

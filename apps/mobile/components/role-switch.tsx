@@ -1,6 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
-import { tokens } from '@/constants/tokens';
 import { AuthRole } from '@/types/auth';
 
 type RoleSwitchProps = {
@@ -10,7 +9,7 @@ type RoleSwitchProps = {
 
 export function RoleSwitch({ onChange, value }: RoleSwitchProps) {
   return (
-    <View style={styles.container}>
+    <View className="flex-row gap-[6px] rounded-xl bg-surfaceHigh p-[6px]">
       <RoleOption active={value === 'student'} label="Student" onPress={() => onChange('student')} />
       <RoleOption
         active={value === 'instructor'}
@@ -33,47 +32,21 @@ function RoleOption({
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.option,
-        active && styles.optionActive,
-        pressed && !active && styles.optionPressed,
-      ]}>
-      <Text style={[styles.label, active && styles.labelActive]}>{label}</Text>
+      className={[
+        'min-h-[44px] flex-1 items-center justify-center rounded-md',
+        active && 'bg-surfaceLowest',
+      ]
+        .filter(Boolean)
+        .join(' ')}>
+      <Text
+        className={[
+          'text-body font-semibold text-onSurfaceVariant',
+          active && 'text-primary',
+        ]
+          .filter(Boolean)
+          .join(' ')}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: tokens.colors.surfaceHigh,
-    borderRadius: tokens.radii.xl,
-    flexDirection: 'row',
-    gap: 6,
-    padding: 6,
-  },
-  option: {
-    alignItems: 'center',
-    borderRadius: tokens.radii.md,
-    flex: 1,
-    justifyContent: 'center',
-    minHeight: 44,
-  },
-  optionActive: {
-    backgroundColor: tokens.colors.surfaceLowest,
-    shadowColor: tokens.colors.onSurface,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-  },
-  optionPressed: {
-    opacity: 0.75,
-  },
-  label: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.body,
-    fontWeight: '600',
-  },
-  labelActive: {
-    color: tokens.colors.primary,
-  },
-});

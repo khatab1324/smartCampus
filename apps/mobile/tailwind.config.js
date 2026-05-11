@@ -1,0 +1,66 @@
+const themeColor = (name) => `rgb(var(--color-${name}) / <alpha-value>)`;
+
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './app/**/*.{js,jsx,ts,tsx}',
+    './components/**/*.{js,jsx,ts,tsx}',
+    './navigation/**/*.{js,jsx,ts,tsx}',
+    './providers/**/*.{js,jsx,ts,tsx}',
+    './screens/**/*.{js,jsx,ts,tsx}',
+  ],
+  presets: [require('nativewind/preset')],
+  theme: {
+    extend: {
+      colors: {
+        background: themeColor('background'),
+        primary: themeColor('primary'),
+        primaryContainer: themeColor('primaryContainer'),
+        primaryFixed: themeColor('primaryFixed'),
+        primarySoft: themeColor('primarySoft'),
+        secondary: themeColor('secondary'),
+        tertiary: themeColor('tertiary'),
+        error: themeColor('error'),
+        success: themeColor('success'),
+        successSoft: themeColor('successSoft'),
+        dangerSoft: themeColor('dangerSoft'),
+        surface: themeColor('surface'),
+        surfaceLow: themeColor('surfaceLow'),
+        surfaceLowest: themeColor('surfaceLowest'),
+        surfaceHigh: themeColor('surfaceHigh'),
+        surfaceHighest: themeColor('surfaceHighest'),
+        onSurface: themeColor('onSurface'),
+        onSurfaceVariant: themeColor('onSurfaceVariant'),
+        onPrimary: themeColor('onPrimary'),
+        onPrimaryFixed: themeColor('onPrimaryFixed'),
+        outline: themeColor('outline'),
+        outlineVariant: themeColor('outlineVariant'),
+      },
+      fontSize: {
+        display: 40,
+        headline: 24,
+        title: 18,
+        body: 14,
+        bodyLg: 16,
+        label: 12,
+        micro: 10,
+      },
+      spacing: {
+        xs: 4,
+        sm: 8,
+        md: 12,
+        lg: 16,
+        xl: 24,
+        xxl: 32,
+        xxxl: 44,
+      },
+      borderRadius: {
+        sm: 4,
+        md: 16,
+        xl: 24,
+        pill: 9999,
+      },
+    },
+  },
+  plugins: [],
+};

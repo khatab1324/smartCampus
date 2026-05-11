@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
-import { tokens } from '@/constants/tokens';
+import { useAppTheme } from '@/hooks/use-app-theme';
 import { useRegisterForm } from '@/hooks/use-register-form';
 import { goToLogin } from '@/services/auth-navigation.service';
 
@@ -10,6 +10,7 @@ import { AppTextField } from './app-text-field';
 import { RoleSwitch } from './role-switch';
 
 export function RegisterForm() {
+  const { colors } = useAppTheme();
   const {
     confirmPassword,
     email,
@@ -27,10 +28,10 @@ export function RegisterForm() {
   } = useRegisterForm();
 
   return (
-    <View style={styles.container}>
+    <View className="gap-xl">
       <RoleSwitch onChange={setRole} value={role} />
 
-      <View style={styles.formFields}>
+      <View className="gap-md">
         <AppTextField
           autoCapitalize="none"
           autoComplete="email"
@@ -40,7 +41,7 @@ export function RegisterForm() {
           onChangeText={setEmail}
           placeholder={role === 'student' ? 'student@gmail.com' : 'name@campus.edu'}
           rightAdornment={
-            <MaterialIcons color={tokens.colors.outline} name="alternate-email" size={20} />
+            <MaterialIcons color={colors.outline} name="alternate-email" size={20} />
           }
           value={email}
         />
@@ -53,7 +54,7 @@ export function RegisterForm() {
             onChangeText={setUniversityNumber}
             placeholder="20241234"
             rightAdornment={
-              <MaterialIcons color={tokens.colors.outline} name="badge" size={20} />
+              <MaterialIcons color={colors.outline} name="badge" size={20} />
             }
             value={universityNumber}
           />
@@ -65,7 +66,7 @@ export function RegisterForm() {
           onChangeText={setPassword}
           placeholder="••••••••"
           rightAdornment={
-            <MaterialIcons color={tokens.colors.outline} name="lock-outline" size={20} />
+            <MaterialIcons color={colors.outline} name="lock-outline" size={20} />
           }
           secureTextEntry
           value={password}
@@ -77,7 +78,7 @@ export function RegisterForm() {
           onChangeText={setConfirmPassword}
           placeholder="••••••••"
           rightAdornment={
-            <MaterialIcons color={tokens.colors.outline} name="verified-user" size={20} />
+            <MaterialIcons color={colors.outline} name="verified-user" size={20} />
           }
           secureTextEntry
           value={confirmPassword}
@@ -88,45 +89,23 @@ export function RegisterForm() {
           label={isSubmitting ? 'Creating Account...' : 'Create Account'}
           onPress={handleSubmit}
           trailing={
-            <MaterialIcons color={tokens.colors.onPrimary} name="mail-outline" size={20} />
+            <MaterialIcons color={colors.onPrimary} name="mail-outline" size={20} />
           }
         />
       </View>
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {error ? (
+        <Text className="text-center text-body font-semibold leading-[21px] text-error">
+          {error}
+        </Text>
+      ) : null}
 
-      <Text style={styles.helperText}>
+      <Text className="text-center text-body font-medium text-onSurfaceVariant">
         Already verified?{' '}
-        <Text onPress={goToLogin} style={styles.helperLink}>
+        <Text onPress={goToLogin} className="font-extrabold text-primary">
           Back to login
         </Text>
       </Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    gap: tokens.spacing.xl,
-  },
-  errorText: {
-    color: tokens.colors.error,
-    fontSize: tokens.typography.body,
-    fontWeight: '600',
-    lineHeight: 21,
-    textAlign: 'center',
-  },
-  formFields: {
-    gap: tokens.spacing.md,
-  },
-  helperText: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.body,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  helperLink: {
-    color: tokens.colors.primary,
-    fontWeight: '800',
-  },
-});

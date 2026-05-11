@@ -1,34 +1,20 @@
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 
 import { tokens } from '@/constants/tokens';
 
 export function AmbientBackground() {
   return (
     <>
-      <View pointerEvents="none" style={[styles.glow, styles.topGlow]} />
-      <View pointerEvents="none" style={[styles.glow, styles.bottomGlow]} />
+      <View
+        pointerEvents="none"
+        className="absolute -right-[40px] -top-[20px] h-[280px] w-[280px] rounded-pill opacity-90"
+        style={{ backgroundColor: tokens.effects.topGlow }}
+      />
+      <View
+        pointerEvents="none"
+        className="absolute -bottom-[80px] -left-[40px] h-[240px] w-[240px] rounded-pill opacity-90"
+        style={{ backgroundColor: tokens.effects.bottomGlow }}
+      />
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  glow: {
-    borderRadius: tokens.radii.pill,
-    opacity: 0.9,
-    position: 'absolute',
-  },
-  topGlow: {
-    backgroundColor: tokens.effects.topGlow,
-    height: 280,
-    right: -40,
-    top: -20,
-    width: 280,
-  },
-  bottomGlow: {
-    backgroundColor: tokens.effects.bottomGlow,
-    bottom: -80,
-    height: 240,
-    left: -40,
-    width: 240,
-  },
-});

@@ -1,28 +1,24 @@
 import { PropsWithChildren } from 'react';
-import { StyleSheet, View, ViewStyle } from 'react-native';
+import { View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { tokens } from '@/constants/tokens';
+import { useAppTheme } from '@/hooks/use-app-theme';
 
 type ScreenShellProps = PropsWithChildren<{
   style?: ViewStyle;
 }>;
 
 export function ScreenShell({ children, style }: ScreenShellProps) {
+  const { colors } = useAppTheme();
+
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
-      <View style={[styles.content, style]}>{children}</View>
+    <SafeAreaView
+      edges={['top', 'bottom']}
+      className="flex-1"
+      style={{ backgroundColor: colors.background }}>
+      <View className="flex-1" style={[{ backgroundColor: colors.background }, style]}>
+        {children}
+      </View>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    backgroundColor: tokens.colors.background,
-    flex: 1,
-  },
-  content: {
-    backgroundColor: tokens.colors.background,
-    flex: 1,
-  },
-});

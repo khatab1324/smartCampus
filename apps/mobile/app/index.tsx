@@ -1,18 +1,21 @@
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { Redirect } from 'expo-router';
 
-import { tokens } from '@/constants/tokens';
+import { useAppTheme } from '@/hooks/use-app-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { routes } from '@/navigation/routes';
 
 export default function IndexScreen() {
+  const { colors } = useAppTheme();
   const { authUser, isHydrating, profile } = useAuth();
 
   if (isHydrating) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator color={tokens.colors.primary} size="large" />
-        <Text style={styles.label}>Connecting to Smart Campus...</Text>
+      <View className="flex-1 items-center justify-center gap-md bg-background">
+        <ActivityIndicator color={colors.primary} size="large" />
+        <Text className="text-body font-semibold text-onSurfaceVariant">
+          Connecting to Smart Campus...
+        </Text>
       </View>
     );
   }
@@ -23,18 +26,3 @@ export default function IndexScreen() {
 
   return <Redirect href={routes.login} />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.background,
-    flex: 1,
-    gap: tokens.spacing.md,
-    justifyContent: 'center',
-  },
-  label: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.body,
-    fontWeight: '600',
-  },
-});

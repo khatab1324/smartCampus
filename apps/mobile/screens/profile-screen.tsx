@@ -1,13 +1,26 @@
-import { useState } from 'react';
-import { MaterialIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { MaterialIcons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
+import Constants from "expo-constants";
+import { router } from "expo-router";
+import { updateProfile } from "firebase/auth";
+import { useCallback, useState } from "react";
+import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 
-import { ScreenShell } from '@/components/screen-shell';
-import { tokens } from '@/constants/tokens';
-import { useAuth } from '@/hooks/use-auth';
-import { routes } from '@/navigation/routes';
-import { withAlpha } from '@/utils/color';
+import { AppButton } from "@/components/app-button";
+import { AppTextField } from "@/components/app-text-field";
+import { ScreenShell } from "@/components/screen-shell";
+import type { AppColorTokens } from "@/constants/tokens";
+import { useAppTheme } from "@/hooks/use-app-theme";
+import { useAuth } from "@/hooks/use-auth";
+import { routes } from "@/navigation/routes";
+import { syncCurrentUserProfile } from "@/services/firebase-auth.service";
+import {
+  InstructorLecture,
+  subscribeInstructorLectures,
+} from "@/services/lecture-session.service";
+import { withAlpha } from "@/utils/color";
+import { getDisplayNameFromEmail, getInitialsFromEmail } from "@/utils/user";
+import { createProfileThemeStyles } from "./profile-screen.styles";
 
 type SettingsRow = {
   icon: keyof typeof MaterialIcons.glyphMap;
@@ -18,171 +31,527 @@ type SettingsRow = {
   value?: string;
 };
 
-const accountRows: SettingsRow[] = [
-  {
-    icon: 'person',
-    iconBackground: withAlpha(tokens.colors.primary, 0.06),
-    iconColor: tokens.colors.primary,
-    id: 'personal-info',
-    label: 'Personal Information',
-  },
-  {
-    icon: 'lock',
-    iconBackground: withAlpha(tokens.colors.primary, 0.06),
-    iconColor: tokens.colors.primary,
-    id: 'security-password',
-    label: 'Security & Password',
-  },
-  {
-    icon: 'notifications',
-    iconBackground: withAlpha(tokens.colors.primary, 0.06),
-    iconColor: tokens.colors.primary,
-    id: 'notifications',
-    label: 'Notifications',
-  },
-];
-
-const appRows: SettingsRow[] = [
-  {
-    icon: 'language',
-    iconBackground: withAlpha(tokens.colors.secondary, 0.06),
-    iconColor: tokens.colors.secondary,
-    id: 'language',
-    label: 'Language',
-    value: 'English',
-  },
-  {
-    icon: 'help',
-    iconBackground: withAlpha(tokens.colors.secondary, 0.06),
-    iconColor: tokens.colors.secondary,
-    id: 'help-support',
-    label: 'Help & Support',
-  },
-];
-
 export default function ProfileScreen() {
-  const { profile } = useAuth();
-  const [appearance, setAppearance] = useState<'light' | 'dark'>('light');
+  const { authUser, profile, refreshProfile, signOutCurrentUser } = useAuth();
+  const {
+    colors: themeColors,
+    setThemePreference,
+    themePreference,
+  } = useAppTheme();
+  const [instructorLectures, setInstructorLectures] = useState<
+    InstructorLecture[]
+  >([]);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [personalInfoVisible, setPersonalInfoVisible] = useState(false);
+  const [draftDisplayName, setDraftDisplayName] = useState("");
+  const [profileError, setProfileError] = useState("");
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const email = profile?.email ?? authUser?.email ?? "Not signed in";
+  const displayName =
+    authUser?.displayName?.trim() || getDisplayNameFromEmail(email);
+  const initials = getInitialsFromEmail(email) || "SC";
+  const role = profile?.role ?? "student";
+  const roleLabel = role === "instructor" ? "Instructor" : "Student";
+  const instructorId = authUser?.uid ?? authUser?.email ?? "local-instructor";
+  const completedLectureCount = instructorLectures.filter(
+    (lecture) => lecture.status === "ended"
+  ).length;
+  const liveLectureCount = instructorLectures.filter(
+    (lecture) => lecture.status === "live"
+  ).length;
+  const isEmailVerified = Boolean(
+    profile?.isEmailVerified || authUser?.emailVerified
+  );
+  const appVersion = Constants.expoConfig?.version ?? "1.0.0";
+  const themeStyles = createProfileThemeStyles(themeColors);
+  const appRows = buildAppRows(themeColors);
+  const accountRows = buildAccountRows({
+    isEmailVerified,
+    roleLabel,
+    themeColors,
+  });
+  const stats =
+    role === "instructor"
+      ? [
+          {
+            icon: "school" as const,
+            label: "Created Lectures",
+            tone: "primary" as const,
+            value: String(instructorLectures.length),
+          },
+          {
+            icon: "analytics" as const,
+            label: "Reports Ready",
+            tone: "tertiary" as const,
+            value: String(completedLectureCount),
+          },
+        ]
+      : [
+          {
+            icon: "verified-user" as const,
+            label: "Email Verified",
+            tone: "primary" as const,
+            value: isEmailVerified ? "Yes" : "No",
+          },
+          {
+            icon: "person" as const,
+            label: "Account Role",
+            tone: "tertiary" as const,
+            value: roleLabel,
+          },
+        ];
+
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+
+      if (role !== "instructor") {
+        setInstructorLectures([]);
+        return () => {
+          isActive = false;
+        };
+      }
+
+      const unsubscribe = subscribeInstructorLectures(instructorId, (lectures) => {
+        if (isActive) {
+          setInstructorLectures(lectures);
+        }
+      });
+
+      return () => {
+        isActive = false;
+        unsubscribe();
+      };
+    }, [instructorId, role])
+  );
+
+  async function handleLogout() {
+    if (isSigningOut) {
+      return;
+    }
+
+    setIsSigningOut(true);
+
+    try {
+      await signOutCurrentUser();
+      router.replace(routes.login);
+    } finally {
+      setIsSigningOut(false);
+    }
+  }
+
+  function openPersonalInfoModal() {
+    setDraftDisplayName(displayName);
+    setProfileError("");
+    setPersonalInfoVisible(true);
+  }
+
+  function closePersonalInfoModal() {
+    if (isSavingProfile) {
+      return;
+    }
+
+    setPersonalInfoVisible(false);
+    setProfileError("");
+  }
+
+  async function handleSavePersonalInfo() {
+    const nextDisplayName = draftDisplayName.trim();
+
+    if (!nextDisplayName) {
+      setProfileError("Display name is required.");
+      return;
+    }
+
+    setIsSavingProfile(true);
+    setProfileError("");
+
+    try {
+      if (authUser) {
+        await updateProfile(authUser, { displayName: nextDisplayName });
+      }
+
+      await syncCurrentUserProfile({
+        role,
+        universityNumber:
+          role === "instructor" ? profile?.universityNumber : undefined,
+      });
+      await refreshProfile();
+      setPersonalInfoVisible(false);
+    } catch (error) {
+      setProfileError(
+        error instanceof Error ? error.message : "Could not update profile."
+      );
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }
 
   return (
-    <ScreenShell>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.topBar}>
-          <View style={styles.topBarLeft}>
-            <Pressable
-              onPress={() => router.replace(profile?.role === 'instructor' ? routes.instructor : routes.student)}
-              style={({ pressed }) => [styles.iconButton, pressed && styles.buttonPressed]}>
-              <MaterialIcons color={tokens.colors.primary} name="arrow-back" size={22} />
+    <ScreenShell style={themeStyles.screenBackground}>
+      <View className="flex-1" style={themeStyles.screenBackground}>
+        <ScrollView
+          contentContainerClassName="px-xl pb-[140px] pt-lg"
+          showsVerticalScrollIndicator={false}
+          style={themeStyles.screenBackground}
+        >
+          <View className="mb-xxl flex-row items-center justify-between">
+            <View className="flex-row items-center gap-md">
+              <Pressable
+                onPress={() =>
+                  router.replace(
+                    profile?.role === "instructor"
+                      ? routes.instructor
+                      : routes.student
+                  )
+                }
+                className="h-10 w-10 items-center justify-center rounded-pill active:scale-[0.99] active:opacity-85"
+              >
+                <MaterialIcons
+                  color={themeColors.primary}
+                  name="arrow-back"
+                  size={22}
+                />
+              </Pressable>
+
+              <Text
+                className="text-title font-extrabold"
+                style={themeStyles.topBarTitle}
+              >
+                Profile
+              </Text>
+            </View>
+
+            <Pressable className="h-10 w-10 items-center justify-center rounded-pill active:scale-[0.99] active:opacity-85">
+              <MaterialIcons
+                color={themeColors.primary}
+                name="settings"
+                size={22}
+              />
             </Pressable>
-
-            <Text style={styles.topBarTitle}>Profile</Text>
           </View>
 
-          <Pressable style={({ pressed }) => [styles.iconButton, pressed && styles.buttonPressed]}>
-            <MaterialIcons color={tokens.colors.primary} name="settings" size={22} />
-          </Pressable>
-        </View>
-
-        <View style={styles.hero}>
-          <View style={styles.portraitWrap}>
-            <View style={styles.portraitCard}>
-              <View style={styles.portraitGlow} />
-              <Text style={styles.portraitInitials}>AH</Text>
+          <View className="mb-xxxl flex-row gap-xl">
+            <View className="relative">
+              <View
+                className="h-32 w-32 items-center justify-center overflow-hidden rounded-xl border-4"
+                style={themeStyles.portraitCard}
+              >
+                <Text
+                  className="text-[42px] font-black"
+                  style={themeStyles.portraitInitials}
+                >
+                  {initials}
+                </Text>
+              </View>
             </View>
 
-            <View style={styles.editBadge}>
-              <MaterialIcons color={tokens.colors.onPrimary} name="edit" size={14} />
+            <View className="flex-1 justify-end pb-sm">
+              <Text
+                className="text-[32px] font-black leading-[38px]"
+                style={themeStyles.heroTitle}
+              >
+                {displayName}
+              </Text>
+              <Text
+                className="mt-xs text-bodyLg font-medium"
+                style={themeStyles.heroSubtitle}
+              >
+                {role === "instructor" && profile?.universityNumber
+                  ? `University No. ${profile.universityNumber}`
+                  : email}
+              </Text>
             </View>
           </View>
 
-          <View style={styles.heroCopy}>
-            <View style={styles.roleBadge}>
-              <View style={styles.roleDot} />
-              <Text style={styles.roleBadgeText}>Senior Student</Text>
-            </View>
-
-            <Text style={styles.heroTitle}>Ahmad Hassan</Text>
-            <Text style={styles.heroSubtitle}>Department of Computer Science</Text>
-          </View>
-        </View>
-
-        <View style={styles.statsGrid}>
-          <StatCard icon="school" label="Active Classes" tone="primary" value="6" />
-          <StatCard icon="analytics" label="Avg. Attendance" tone="tertiary" value="94%" />
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Account Settings</Text>
-          <View style={styles.groupCard}>
-            {accountRows.map((row, index) => (
-              <SettingsButton
-                key={row.id}
-                hasDivider={index !== accountRows.length - 1}
-                row={row}
+          <View
+            className={[
+              "flex-row gap-lg",
+              role !== "instructor" ? "mb-xxxl" : "mb-xl",
+            ].join(" ")}
+          >
+            {stats.map((stat) => (
+              <StatCard
+                key={stat.label}
+                icon={stat.icon}
+                label={stat.label}
+                tone={stat.tone}
+                value={stat.value}
               />
             ))}
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>App Configuration</Text>
-          <View style={styles.groupCard}>
-            <SettingsButton hasDivider row={appRows[0]} />
-
-            <View style={styles.inlineRow}>
-              <View style={styles.inlineRowMain}>
-                <View style={[styles.rowIconShell, { backgroundColor: withAlpha(tokens.colors.secondary, 0.06) }]}>
-                  <MaterialIcons color={tokens.colors.secondary} name="palette" size={20} />
-                </View>
-                <Text style={styles.rowLabel}>Appearance</Text>
-              </View>
-
-              <View style={styles.appearanceSwitch}>
-                <Pressable
-                  onPress={() => setAppearance('light')}
-                  style={({ pressed }) => [
-                    styles.appearanceOption,
-                    appearance === 'light' && styles.appearanceOptionActive,
-                    pressed && styles.buttonPressed,
-                  ]}>
-                  <MaterialIcons
-                    color={appearance === 'light' ? tokens.colors.primary : tokens.colors.onSurfaceVariant}
-                    name="light-mode"
-                    size={16}
-                  />
-                </Pressable>
-
-                <Pressable
-                  onPress={() => setAppearance('dark')}
-                  style={({ pressed }) => [
-                    styles.appearanceOption,
-                    appearance === 'dark' && styles.appearanceOptionActive,
-                    pressed && styles.buttonPressed,
-                  ]}>
-                  <MaterialIcons
-                    color={appearance === 'dark' ? tokens.colors.primary : tokens.colors.onSurfaceVariant}
-                    name="dark-mode"
-                    size={16}
-                  />
-                </Pressable>
-              </View>
+          {role === "instructor" ? (
+            <View
+              className="mb-xxxl flex-row items-center gap-xs self-start rounded-pill px-md py-[7px]"
+              style={themeStyles.liveSummary}
+            >
+              <MaterialIcons
+                color={themeColors.success}
+                name="wifi-tethering"
+                size={18}
+              />
+              <Text
+                className="text-label font-extrabold"
+                style={themeStyles.liveSummaryText}
+              >
+                {liveLectureCount} live lecture
+                {liveLectureCount === 1 ? "" : "s"} right now
+              </Text>
             </View>
+          ) : null}
 
-            <SettingsButton row={appRows[1]} />
+          <View className="mb-xxl">
+            <Text
+              className="mb-md px-sm text-[11px] font-extrabold uppercase tracking-[2px]"
+              style={themeStyles.sectionLabel}
+            >
+              Account Settings
+            </Text>
+            <View
+              className="overflow-hidden rounded-xl border"
+              style={themeStyles.groupCard}
+            >
+              {accountRows.map((row, index) => (
+                <SettingsButton
+                  key={row.id}
+                  hasDivider={index !== accountRows.length - 1}
+                  onPress={
+                    row.id === "personal-info"
+                      ? openPersonalInfoModal
+                      : undefined
+                  }
+                  row={row}
+                />
+              ))}
+            </View>
           </View>
-        </View>
 
-        <View style={styles.footer}>
-          <Pressable style={({ pressed }) => [styles.logoutButton, pressed && styles.buttonPressed]}>
-            <MaterialIcons color="#93000A" name="logout" size={20} />
-            <Text style={styles.logoutText}>Logout</Text>
-          </Pressable>
+          <View className="mb-xxl">
+            <Text
+              className="mb-md px-sm text-[11px] font-extrabold uppercase tracking-[2px]"
+              style={themeStyles.sectionLabel}
+            >
+              App Configuration
+            </Text>
+            <View
+              className="overflow-hidden rounded-xl border"
+              style={themeStyles.groupCard}
+            >
+              <SettingsButton hasDivider row={appRows[0]} />
 
-          <Text style={styles.versionText}>Smart Campus v2.4.1</Text>
-        </View>
-      </ScrollView>
+              <View
+                className="flex-row items-center justify-between border-b px-[20px] py-[18px]"
+                style={themeStyles.inlineRow}
+              >
+                <View className="flex-row items-center gap-md">
+                  <View
+                    className="h-9 w-9 items-center justify-center rounded-[12px]"
+                    style={themeStyles.paletteIconShell}
+                  >
+                    <MaterialIcons
+                      color={themeColors.secondary}
+                      name="palette"
+                      size={20}
+                    />
+                  </View>
+                  <Text
+                    className="text-bodyLg font-medium"
+                    style={themeStyles.rowLabel}
+                  >
+                    Appearance
+                  </Text>
+                </View>
+
+                <View
+                  className="flex-row items-center gap-[4px] rounded-pill p-[4px]"
+                  style={themeStyles.appearanceSwitch}
+                >
+                  <Pressable
+                    onPress={() => setThemePreference("system")}
+                    className="h-[30px] w-[30px] items-center justify-center rounded-pill active:scale-[0.99] active:opacity-85"
+                    style={
+                      themePreference === "system"
+                        ? themeStyles.appearanceOptionActive
+                        : undefined
+                    }
+                  >
+                    <MaterialIcons
+                      color={
+                        themePreference === "system"
+                          ? themeColors.primary
+                          : themeColors.onSurfaceVariant
+                      }
+                      name="brightness-auto"
+                      size={16}
+                    />
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => setThemePreference("light")}
+                    className="h-[30px] w-[30px] items-center justify-center rounded-pill active:scale-[0.99] active:opacity-85"
+                    style={
+                      themePreference === "light"
+                        ? themeStyles.appearanceOptionActive
+                        : undefined
+                    }
+                  >
+                    <MaterialIcons
+                      color={
+                        themePreference === "light"
+                          ? themeColors.primary
+                          : themeColors.onSurfaceVariant
+                      }
+                      name="light-mode"
+                      size={16}
+                    />
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => setThemePreference("dark")}
+                    className="h-[30px] w-[30px] items-center justify-center rounded-pill active:scale-[0.99] active:opacity-85"
+                    style={
+                      themePreference === "dark"
+                        ? themeStyles.appearanceOptionActive
+                        : undefined
+                    }
+                  >
+                    <MaterialIcons
+                      color={
+                        themePreference === "dark"
+                          ? themeColors.primary
+                          : themeColors.onSurfaceVariant
+                      }
+                      name="dark-mode"
+                      size={16}
+                    />
+                  </Pressable>
+                </View>
+              </View>
+
+              <SettingsButton row={appRows[1]} />
+            </View>
+          </View>
+
+          <View className="pt-sm">
+            <Pressable
+              disabled={isSigningOut}
+              onPress={handleLogout}
+              className={[
+                "min-h-[56px] flex-row items-center justify-center gap-sm rounded-xl active:scale-[0.99] active:opacity-85",
+                isSigningOut ? "opacity-55" : "",
+              ].join(" ")}
+              style={{ backgroundColor: themeColors.dangerSoft }}
+            >
+              <MaterialIcons
+                color={themeColors.error}
+                name="logout"
+                size={20}
+              />
+              <Text
+                className="text-bodyLg font-extrabold"
+                style={{ color: themeColors.error }}
+              >
+                {isSigningOut ? "Logging out..." : "Logout"}
+              </Text>
+            </Pressable>
+
+            <Text
+              className="mt-xl text-center text-[11px] font-bold uppercase tracking-[2px]"
+              style={themeStyles.versionText}
+            >
+              Smart Campus v{appVersion}
+            </Text>
+          </View>
+        </ScrollView>
+
+        <PersonalInfoModal
+          displayName={draftDisplayName}
+          email={email}
+          error={profileError}
+          isInstructor={role === "instructor"}
+          isSaving={isSavingProfile}
+          onChangeDisplayName={setDraftDisplayName}
+          onClose={closePersonalInfoModal}
+          onSave={handleSavePersonalInfo}
+          roleLabel={roleLabel}
+          universityNumber={profile?.universityNumber}
+          visible={personalInfoVisible}
+        />
+      </View>
     </ScreenShell>
   );
+}
+
+function buildAppRows(themeColors: AppColorTokens): SettingsRow[] {
+  return [
+    {
+      icon: "language",
+      iconBackground: withAlpha(themeColors.secondary, 0.08),
+      iconColor: themeColors.secondary,
+      id: "language",
+      label: "Language",
+      value: "English",
+    },
+    {
+      icon: "help",
+      iconBackground: withAlpha(themeColors.secondary, 0.08),
+      iconColor: themeColors.secondary,
+      id: "help-support",
+      label: "Help & Support",
+    },
+  ];
+}
+
+function buildAccountRows({
+  isEmailVerified,
+  roleLabel,
+  themeColors,
+}: {
+  isEmailVerified: boolean;
+  roleLabel: string;
+  themeColors: AppColorTokens;
+}): SettingsRow[] {
+  return [
+    {
+      icon: "person",
+      iconBackground: withAlpha(themeColors.primary, 0.08),
+      iconColor: themeColors.primary,
+      id: "personal-info",
+      label: "Personal Information",
+      value: "Edit",
+    },
+    {
+      icon: "lock",
+      iconBackground: withAlpha(themeColors.primary, 0.08),
+      iconColor: themeColors.primary,
+      id: "security-password",
+      label: "Security & Password",
+    },
+    {
+      icon: "notifications",
+      iconBackground: withAlpha(themeColors.primary, 0.08),
+      iconColor: themeColors.primary,
+      id: "notifications",
+      label: "Notifications",
+    },
+    {
+      icon: "badge",
+      iconBackground: withAlpha(themeColors.primary, 0.08),
+      iconColor: themeColors.primary,
+      id: "role",
+      label: "Role",
+      value: roleLabel,
+    },
+    {
+      icon: isEmailVerified ? "verified-user" : "report-gmailerrorred",
+      iconBackground: withAlpha(themeColors.primary, 0.08),
+      iconColor: isEmailVerified ? themeColors.success : themeColors.error,
+      id: "email-status",
+      label: "Email Status",
+      value: isEmailVerified ? "Verified" : "Not verified",
+    },
+  ];
 }
 
 function StatCard({
@@ -193,28 +562,39 @@ function StatCard({
 }: {
   icon: keyof typeof MaterialIcons.glyphMap;
   label: string;
-  tone: 'primary' | 'secondary' | 'tertiary';
+  tone: "primary" | "secondary" | "tertiary";
   value: string;
 }) {
+  const { colors: themeColors } = useAppTheme();
+  const themeStyles = createProfileThemeStyles(themeColors);
   const iconColor =
-    tone === 'primary'
-      ? tokens.colors.primary
-      : tone === 'secondary'
-        ? tokens.colors.secondary
-        : tokens.colors.tertiary;
-  const cardStyle =
-    tone === 'primary'
-      ? styles.statCardBase
-      : tone === 'secondary'
-        ? styles.statCardBase
-        : styles.statCardSoft;
+    tone === "primary"
+      ? themeColors.primary
+      : tone === "secondary"
+        ? themeColors.secondary
+        : themeColors.tertiary;
+  const cardThemeStyle =
+    tone === "tertiary" ? themeStyles.statCardTertiary : themeStyles.statCard;
 
   return (
-    <View style={cardStyle}>
+    <View
+      className="min-h-[116px] flex-1 gap-lg rounded-xl border p-[20px]"
+      style={cardThemeStyle}
+    >
       <MaterialIcons color={iconColor} name={icon} size={22} />
       <View>
-        <Text style={styles.statValue}>{value}</Text>
-        <Text style={styles.statCaption}>{label}</Text>
+        <Text
+          className="mb-[2px] text-[30px] font-black"
+          style={themeStyles.statValue}
+        >
+          {value}
+        </Text>
+        <Text
+          className="text-micro font-bold uppercase tracking-[1.1px]"
+          style={themeStyles.statCaption}
+        >
+          {label}
+        </Text>
       </View>
     </View>
   );
@@ -222,304 +602,221 @@ function StatCard({
 
 function SettingsButton({
   hasDivider,
+  onPress,
   row,
 }: {
   hasDivider?: boolean;
+  onPress?: () => void;
   row: SettingsRow;
 }) {
+  const { colors: themeColors } = useAppTheme();
+  const themeStyles = createProfileThemeStyles(themeColors);
+
   return (
-    <Pressable style={({ pressed }) => [styles.rowButton, hasDivider && styles.rowDivider, pressed && styles.buttonPressed]}>
-      <View style={styles.rowMain}>
-        <View style={[styles.rowIconShell, { backgroundColor: row.iconBackground }]}>
+    <Pressable
+      onPress={onPress}
+      className={[
+        "flex-row items-center justify-between gap-md px-[20px] py-[18px]",
+        hasDivider ? "border-b" : "",
+        onPress ? "active:scale-[0.99] active:opacity-85" : "",
+      ].join(" ")}
+      style={hasDivider ? themeStyles.rowDivider : undefined}
+    >
+      <View className="shrink-0 flex-row items-center gap-md">
+        <View
+          className="h-9 w-9 items-center justify-center rounded-[12px]"
+          style={{ backgroundColor: row.iconBackground }}
+        >
           <MaterialIcons color={row.iconColor} name={row.icon} size={20} />
         </View>
-        <Text style={styles.rowLabel}>{row.label}</Text>
+        <Text className="text-bodyLg font-medium" style={themeStyles.rowLabel}>
+          {row.label}
+        </Text>
       </View>
 
-      <View style={styles.rowSide}>
-        {row.value ? <Text style={styles.rowValue}>{row.value}</Text> : null}
-        <MaterialIcons color={tokens.colors.outlineVariant} name="chevron-right" size={22} />
+      <View className="flex-1 flex-row items-center justify-end gap-xs">
+        {row.value ? (
+          <Text
+            className="shrink text-right text-body font-medium"
+            style={themeStyles.rowValue}
+          >
+            {row.value}
+          </Text>
+        ) : null}
+        {onPress ? (
+          <MaterialIcons
+            color={themeColors.outlineVariant}
+            name="chevron-right"
+            size={22}
+          />
+        ) : null}
       </View>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  content: {
-    paddingBottom: 140,
-    paddingHorizontal: tokens.spacing.xl,
-    paddingTop: tokens.spacing.lg,
-  },
-  topBar: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: tokens.spacing.xxl,
-  },
-  topBarLeft: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: tokens.spacing.md,
-  },
-  iconButton: {
-    alignItems: 'center',
-    borderRadius: tokens.radii.pill,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  topBarTitle: {
-    color: tokens.colors.onSurface,
-    fontSize: tokens.typography.title,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-  },
-  hero: {
-    flexDirection: 'row',
-    gap: tokens.spacing.xl,
-    marginBottom: tokens.spacing.xxxl,
-  },
-  portraitWrap: {
-    position: 'relative',
-  },
-  portraitCard: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.primary,
-    borderColor: tokens.colors.surfaceLowest,
-    borderRadius: tokens.radii.xl,
-    borderWidth: 4,
-    height: 128,
-    justifyContent: 'center',
-    overflow: 'hidden',
-    width: 128,
-    ...tokens.shadows.floating,
-  },
-  portraitGlow: {
-    backgroundColor: withAlpha(tokens.colors.primaryFixed, 0.28),
-    borderRadius: 999,
-    height: 120,
-    position: 'absolute',
-    right: -24,
-    top: -22,
-    width: 120,
-  },
-  portraitInitials: {
-    color: tokens.colors.onPrimary,
-    fontSize: 42,
-    fontWeight: '900',
-    letterSpacing: -1,
-  },
-  editBadge: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.primary,
-    borderRadius: 12,
-    bottom: -8,
-    height: 32,
-    justifyContent: 'center',
-    position: 'absolute',
-    right: -8,
-    width: 32,
-    ...tokens.shadows.soft,
-  },
-  heroCopy: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    paddingBottom: tokens.spacing.sm,
-  },
-  roleBadge: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: withAlpha(tokens.colors.tertiary, 0.1),
-    borderRadius: tokens.radii.pill,
-    flexDirection: 'row',
-    gap: tokens.spacing.xs,
-    marginBottom: tokens.spacing.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  roleDot: {
-    backgroundColor: tokens.colors.tertiary,
-    borderRadius: tokens.radii.pill,
-    height: 8,
-    width: 8,
-  },
-  roleBadgeText: {
-    color: tokens.colors.tertiary,
-    fontSize: tokens.typography.micro,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  heroTitle: {
-    color: tokens.colors.onSurface,
-    fontSize: 32,
-    fontWeight: '900',
-    letterSpacing: -1,
-    lineHeight: 38,
-  },
-  heroSubtitle: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.bodyLg,
-    fontWeight: '500',
-    marginTop: 4,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    gap: tokens.spacing.lg,
-    marginBottom: tokens.spacing.xxxl,
-  },
-  statCardBase: {
-    backgroundColor: tokens.colors.surfaceLowest,
-    borderColor: withAlpha(tokens.colors.outlineVariant, 0.1),
-    borderRadius: tokens.radii.xl,
-    borderWidth: 1,
-    flex: 1,
-    gap: tokens.spacing.lg,
-    minHeight: 116,
-    padding: 20,
-  },
-  statCardSoft: {
-    backgroundColor: tokens.colors.surfaceLow,
-    borderColor: withAlpha(tokens.colors.outlineVariant, 0.06),
-    borderRadius: tokens.radii.xl,
-    borderWidth: 1,
-    flex: 1,
-    gap: tokens.spacing.lg,
-    minHeight: 116,
-    padding: 20,
-  },
-  statValue: {
-    color: tokens.colors.onSurface,
-    fontSize: 30,
-    fontWeight: '900',
-    marginBottom: 2,
-  },
-  statCaption: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.micro,
-    fontWeight: '700',
-    letterSpacing: 1.1,
-    textTransform: 'uppercase',
-  },
-  section: {
-    marginBottom: tokens.spacing.xxl,
-  },
-  sectionLabel: {
-    color: withAlpha(tokens.colors.onSurfaceVariant, 0.6),
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 2,
-    marginBottom: tokens.spacing.md,
-    paddingHorizontal: 8,
-    textTransform: 'uppercase',
-  },
-  groupCard: {
-    backgroundColor: tokens.colors.surfaceLowest,
-    borderColor: withAlpha(tokens.colors.outlineVariant, 0.1),
-    borderRadius: tokens.radii.xl,
-    borderWidth: 1,
-    overflow: 'hidden',
-    ...tokens.shadows.soft,
-  },
-  rowButton: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-  },
-  rowDivider: {
-    borderBottomColor: withAlpha(tokens.colors.outlineVariant, 0.1),
-    borderBottomWidth: 1,
-  },
-  rowMain: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: tokens.spacing.md,
-  },
-  rowIconShell: {
-    alignItems: 'center',
-    borderRadius: 12,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  rowLabel: {
-    color: tokens.colors.onSurface,
-    fontSize: tokens.typography.bodyLg,
-    fontWeight: '500',
-  },
-  rowSide: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: tokens.spacing.xs,
-  },
-  rowValue: {
-    color: tokens.colors.onSurfaceVariant,
-    fontSize: tokens.typography.body,
-    fontWeight: '500',
-  },
-  inlineRow: {
-    alignItems: 'center',
-    borderBottomColor: withAlpha(tokens.colors.outlineVariant, 0.1),
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-  },
-  inlineRowMain: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: tokens.spacing.md,
-  },
-  appearanceSwitch: {
-    alignItems: 'center',
-    backgroundColor: tokens.colors.surfaceHigh,
-    borderRadius: tokens.radii.pill,
-    flexDirection: 'row',
-    gap: 4,
-    padding: 4,
-  },
-  appearanceOption: {
-    alignItems: 'center',
-    borderRadius: tokens.radii.pill,
-    height: 30,
-    justifyContent: 'center',
-    width: 30,
-  },
-  appearanceOptionActive: {
-    backgroundColor: tokens.colors.surfaceLowest,
-    ...tokens.shadows.soft,
-  },
-  footer: {
-    paddingTop: tokens.spacing.sm,
-  },
-  logoutButton: {
-    alignItems: 'center',
-    backgroundColor: '#FFDAD6',
-    borderRadius: tokens.radii.xl,
-    flexDirection: 'row',
-    gap: tokens.spacing.sm,
-    justifyContent: 'center',
-    minHeight: 56,
-  },
-  logoutText: {
-    color: '#93000A',
-    fontSize: tokens.typography.bodyLg,
-    fontWeight: '800',
-  },
-  versionText: {
-    color: withAlpha(tokens.colors.onSurfaceVariant, 0.4),
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 2,
-    marginTop: tokens.spacing.xl,
-    textAlign: 'center',
-    textTransform: 'uppercase',
-  },
-  buttonPressed: {
-    opacity: 0.84,
-    transform: [{ scale: 0.99 }],
-  },
-});
+function PersonalInfoModal({
+  displayName,
+  email,
+  error,
+  isInstructor,
+  isSaving,
+  onChangeDisplayName,
+  onClose,
+  onSave,
+  roleLabel,
+  universityNumber,
+  visible,
+}: {
+  displayName: string;
+  email: string;
+  error: string;
+  isInstructor: boolean;
+  isSaving: boolean;
+  onChangeDisplayName: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+  roleLabel: string;
+  universityNumber?: string;
+  visible: boolean;
+}) {
+  const { colors: themeColors } = useAppTheme();
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      transparent
+      visible={visible}
+    >
+      <View className="flex-1 justify-end">
+        <Pressable
+          disabled={isSaving}
+          onPress={onClose}
+          className="absolute inset-0 bg-[rgba(8,12,25,0.38)]"
+        />
+
+        <View className="gap-xl rounded-t-xl bg-surfaceLowest p-xl">
+          <View className="mb-xl h-[5px] w-[54px] self-center rounded-pill bg-outlineVariant" />
+
+          <View className="mb-xl flex-row items-center justify-between">
+            <View>
+              <Text className="text-micro font-extrabold uppercase tracking-[1px] text-tertiary">
+                Profile
+              </Text>
+              <Text className="mt-[2px] text-headline font-extrabold text-onSurface">
+                Personal Information
+              </Text>
+            </View>
+
+            <Pressable
+              disabled={isSaving}
+              onPress={onClose}
+              className="h-10 w-10 items-center justify-center rounded-pill active:scale-[0.99] active:opacity-85"
+            >
+              <MaterialIcons
+                color={themeColors.onSurfaceVariant}
+                name="close"
+                size={22}
+              />
+            </Pressable>
+          </View>
+
+          <View className="gap-lg">
+            <AppTextField
+              autoCapitalize="words"
+              label="Display Name"
+              onChangeText={onChangeDisplayName}
+              placeholder="Your name"
+              rightAdornment={
+                <MaterialIcons
+                  color={themeColors.outline}
+                  name="person"
+                  size={20}
+                />
+              }
+              value={displayName}
+            />
+
+            <View className="overflow-hidden rounded-xl bg-surfaceLow">
+              <ReadOnlyInfoRow icon="email" label="Email" value={email} />
+              <ReadOnlyInfoRow icon="badge" label="Role" value={roleLabel} />
+              {isInstructor ? (
+                <ReadOnlyInfoRow
+                  icon="confirmation-number"
+                  label="University Number"
+                  value={universityNumber ?? "Not available"}
+                />
+              ) : null}
+            </View>
+
+            {error ? (
+              <View className="flex-row items-center gap-sm rounded-md bg-error/10 px-md py-md">
+                <MaterialIcons
+                  color={themeColors.error}
+                  name="error-outline"
+                  size={18}
+                />
+                <Text className="flex-1 text-body font-bold text-error">
+                  {error}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View className="gap-sm">
+            <AppButton
+              disabled={isSaving}
+              label={isSaving ? "Saving..." : "Save Changes"}
+              onPress={onSave}
+              trailing={
+                <MaterialIcons
+                  color={themeColors.onPrimary}
+                  name="check"
+                  size={20}
+                />
+              }
+            />
+
+            <Pressable
+              disabled={isSaving}
+              onPress={onClose}
+              className="min-h-[48px] items-center justify-center rounded-xl active:scale-[0.99] active:opacity-85"
+            >
+              <Text className="text-body font-extrabold text-primary">
+                Cancel
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ReadOnlyInfoRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof MaterialIcons.glyphMap;
+  label: string;
+  value: string;
+}) {
+  const { colors: themeColors } = useAppTheme();
+
+  return (
+    <View className="flex-row items-center justify-between gap-md border-b border-outlineVariant/30 px-md py-md">
+      <View className="flex-row items-center gap-sm">
+        <View className="h-8 w-8 items-center justify-center rounded-pill bg-primarySoft">
+          <MaterialIcons color={themeColors.primary} name={icon} size={18} />
+        </View>
+        <Text className="text-body font-extrabold text-onSurface">{label}</Text>
+      </View>
+
+      <Text className="flex-1 text-right text-body font-bold text-onSurfaceVariant">
+        {value}
+      </Text>
+    </View>
+  );
+}
