@@ -1,21 +1,25 @@
 import { z } from "zod";
 
-const passwordSchema = z.string().min(8);
+const emailSchema = z
+  .string()
+  .trim()
+  .email("Enter a valid email address")
+  .toLowerCase();
+
+const passwordSchema = z
+  .string()
+  .min(8, "Password must be at least 8 characters");
 
 export const loginSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
   password: passwordSchema,
 });
 
 export const registerStudentSchema = z
   .object({
-    email: z
-      .string()
-      .email()
-      .toLowerCase()
-      .refine((value) => value.endsWith("@gmail.com"), {
-        message: "Student registration requires a Gmail address",
-      }),
+    email: emailSchema.refine((value) => value.endsWith("@gmail.com"), {
+      message: "Student registration requires a Gmail address",
+    }),
     password: passwordSchema,
     confirmPassword: passwordSchema,
   })
@@ -26,8 +30,11 @@ export const registerStudentSchema = z
 
 export const registerInstructorSchema = z
   .object({
-    email: z.string().email().toLowerCase(),
-    universityNumber: z.string().trim().min(1),
+    email: emailSchema,
+    universityNumber: z
+      .string()
+      .trim()
+      .min(1, "University number is required"),
     password: passwordSchema,
     confirmPassword: passwordSchema,
   })
@@ -37,12 +44,12 @@ export const registerInstructorSchema = z
   });
 
 export const verifyOtpSchema = z.object({
-  email: z.string().email().toLowerCase(),
+  email: emailSchema,
   otp: z.string().regex(/^\d{6}$/, "OTP must be 6 digits"),
 });
 
 export const resendOtpSchema = z.object({
-  email: z.string().email().toLowerCase(),
+  email: emailSchema,
 });
 
 export const upsertUserProfileSchema = z

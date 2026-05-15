@@ -1,9 +1,11 @@
 import { Alert } from 'react-native';
 import { useState } from 'react';
+import { registerInstructorSchema, registerStudentSchema } from '@smart-campus/validation';
 
 import { useAuth } from '@/hooks/use-auth';
 import { goToLogin } from '@/services/auth-navigation.service';
 import type { AuthRole } from '@/types/auth';
+import { getFirstValidationMessage } from '@/utils/form-validation';
 
 export function useRegisterForm() {
   const { register } = useAuth();
@@ -16,27 +18,52 @@ export function useRegisterForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit() {
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.');
-      return;
-    }
-
-    if (role === 'instructor' && !universityNumber.trim()) {
-      setError('University number is required for instructors.');
-      return;
-    }
+    setError('');
 
     try {
-      setIsSubmitting(true);
-      setError('');
+      if (role === 'student') {
+        const parsedInput = registerStudentSchema.safeParse({
+          confirmPassword,
+          email,
+          password,
+        });
 
-      await register({
-        confirmPassword,
-        email,
-        password,
-        role,
-        universityNumber: role === 'instructor' ? universityNumber : undefined,
-      });
+        if (!parsedInput.success) {
+          setError(getFirstValidationMessage(parsedInput.error));
+          return;
+        }
+
+        setIsSubmitting(true);
+
+        await register({
+          confirmPassword: parsedInput.data.confirmPassword,
+          email: parsedInput.data.email,
+          password: parsedInput.data.password,
+          role,
+        });
+      } else {
+        const parsedInput = registerInstructorSchema.safeParse({
+          confirmPassword,
+          email,
+          password,
+          universityNumber,
+        });
+
+        if (!parsedInput.success) {
+          setError(getFirstValidationMessage(parsedInput.error));
+          return;
+        }
+
+        setIsSubmitting(true);
+
+        await register({
+          confirmPassword: parsedInput.data.confirmPassword,
+          email: parsedInput.data.email,
+          password: parsedInput.data.password,
+          role,
+          universityNumber: parsedInput.data.universityNumber,
+        });
+      }
 
       Alert.alert(
         'Verify your email',

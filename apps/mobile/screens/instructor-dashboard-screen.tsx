@@ -21,9 +21,6 @@ export default function InstructorDashboardScreen() {
   const displayName = getDisplayNameFromEmail(email);
   const initials = getInitialsFromEmail(email);
   const liveLectureCount = lectures.filter((lecture) => lecture.status === 'live').length;
-  const liveStudentCount = lectures
-    .filter((lecture) => lecture.status === 'live')
-    .reduce((total, lecture) => total + lecture.attendanceCount, 0);
   const reportCount = lectures.filter((lecture) => lecture.status === 'ended').length;
 
   useFocusEffect(
@@ -50,10 +47,17 @@ export default function InstructorDashboardScreen() {
     setExportingLectureId(lecture.id);
 
     try {
-      const result = await exportLectureAttendanceReport(lecture);
-      Alert.alert('Report exported', `${result.fileName} includes ${result.rowCount} students.`);
-    } catch {
-      Alert.alert('Export failed', 'Could not export this attendance report.');
+      await exportLectureAttendanceReport(lecture);
+    } catch (downloadError) {
+      const message =
+        downloadError instanceof Error
+          ? downloadError.message
+          : 'Could not download this attendance report.';
+
+      Alert.alert(
+        message.startsWith('Report downloaded') ? 'Open failed' : 'Download failed',
+        message
+      );
     } finally {
       setExportingLectureId(null);
     }
@@ -99,12 +103,6 @@ export default function InstructorDashboardScreen() {
               label="Active Lectures"
               tone="primary"
               value={String(liveLectureCount)}
-            />
-            <SummaryCard
-              icon="groups"
-              label="Live Students"
-              tone="secondary"
-              value={String(liveStudentCount)}
             />
             <SummaryCard
               icon="analytics"
@@ -214,7 +212,7 @@ export default function InstructorDashboardScreen() {
                             ].join(' ')}>
                             <MaterialIcons color={themeColors.primary} name="download" size={17} />
                             <Text className="text-label font-black text-primary">
-                              {exportingLectureId === lecture.id ? 'Exporting' : 'Export'}
+                              {exportingLectureId === lecture.id ? 'Downloading' : 'Download'}
                             </Text>
                           </Pressable>
                         </View>

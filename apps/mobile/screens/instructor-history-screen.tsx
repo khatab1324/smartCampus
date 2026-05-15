@@ -47,10 +47,17 @@ export default function InstructorHistoryScreen() {
     setExportingLectureId(lecture.id);
 
     try {
-      const result = await exportLectureAttendanceReport(lecture);
-      Alert.alert('Report exported', `${result.fileName} includes ${result.rowCount} students.`);
-    } catch {
-      Alert.alert('Export failed', 'Could not export this attendance report.');
+      await exportLectureAttendanceReport(lecture);
+    } catch (downloadError) {
+      const message =
+        downloadError instanceof Error
+          ? downloadError.message
+          : 'Could not download this attendance report.';
+
+      Alert.alert(
+        message.startsWith('Report downloaded') ? 'Open failed' : 'Download failed',
+        message
+      );
     } finally {
       setExportingLectureId(null);
     }
@@ -184,7 +191,7 @@ export default function InstructorHistoryScreen() {
                             ].join(' ')}>
                             <MaterialIcons color={themeColors.primary} name="download" size={17} />
                             <Text className="text-label font-black text-primary">
-                              {exportingLectureId === lecture.id ? 'Exporting' : 'Export'}
+                              {exportingLectureId === lecture.id ? 'Downloading' : 'Download'}
                             </Text>
                           </Pressable>
                         </View>

@@ -4,8 +4,9 @@
       "ignoreDeprecations": "6.0",
       "outDir": "dist",
       "rootDir": "src",
-      "declaration": true,
-      "emitDeclarationOnly": true
+      "module": "CommonJS",
+      "moduleResolution": "Node",
+      "declaration": true
     },
     "include": ["src"]
   }

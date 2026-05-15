@@ -84,7 +84,7 @@ export function LoginForm() {
       <Text className="text-center text-body font-medium text-onSurfaceVariant">
         New to campus?{' '}
         <Text onPress={goToRegister} className="font-extrabold text-primary">
-          Register your ID
+          Sign up
         </Text>
       </Text>
     </View>

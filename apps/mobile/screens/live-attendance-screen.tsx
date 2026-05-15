@@ -160,10 +160,17 @@ export default function LiveAttendanceScreen() {
     setIsExporting(true);
 
     try {
-      const result = await exportLectureAttendanceReport(lecture);
-      Alert.alert('Report exported', `${result.fileName} includes ${result.rowCount} students.`);
-    } catch {
-      Alert.alert('Export failed', 'Could not export this attendance report.');
+      await exportLectureAttendanceReport(lecture);
+    } catch (downloadError) {
+      const message =
+        downloadError instanceof Error
+          ? downloadError.message
+          : 'Could not download this attendance report.';
+
+      Alert.alert(
+        message.startsWith('Report downloaded') ? 'Open failed' : 'Download failed',
+        message
+      );
     } finally {
       setIsExporting(false);
     }
@@ -353,7 +360,7 @@ export default function LiveAttendanceScreen() {
                 ].join(' ')}>
                 <MaterialIcons color={themeColors.primary} name="download" size={18} />
                 <Text className="text-body font-black text-primary">
-                  {isExporting ? 'Exporting...' : 'Export Excel Report'}
+                  {isExporting ? 'Downloading...' : 'Download Excel Report'}
                 </Text>
               </Pressable>
 
