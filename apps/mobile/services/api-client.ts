@@ -13,12 +13,13 @@ function getExpoHost() {
 function getApiBaseUrl() {
   const configuredBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
   const expoHost = getExpoHost();
+  const baseUrl = configuredBaseUrl.replace(/\/+$/, '');
 
-  if (expoHost && configuredBaseUrl.includes('localhost')) {
-    return configuredBaseUrl.replace('localhost', expoHost);
+  if (expoHost && baseUrl.includes('localhost')) {
+    return baseUrl.replace('localhost', expoHost);
   }
 
-  return configuredBaseUrl;
+  return baseUrl;
 }
 
 export async function apiRequest<T>(
@@ -43,9 +44,7 @@ export async function apiRequest<T>(
       headers,
     });
   } catch {
-    throw new Error(
-      `broooo the server not linked cannot reach the backend at ${baseUrl}.`
-    );
+    throw new Error(`Cannot reach the backend at ${baseUrl}.`);
   }
 
   const payload = (await response.json().catch(() => null)) as
@@ -53,7 +52,7 @@ export async function apiRequest<T>(
     | null;
 
   if (!response.ok) {
-    throw new Error(payload?.message || 'Request failed');
+    throw new Error(payload?.message || `Request failed (${response.status})`);
   }
 
   return (payload?.data ?? null) as T;
